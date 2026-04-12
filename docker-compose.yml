@@ -8,7 +8,7 @@
 #   Cache        : Redis 7.2
 #   Monitoring   : Prometheus + Grafana
 #   Exporters    : Kafka Exporter + Postgres Exporter + Redis Exporter
-#   Applications : seismosis-ingestion, seismosis-storage, seismosis-api
+#   Applications : seismosis-ingestion, seismosis-storage, seismosis-api, seismosis-analysis
 #
 # Usage:
 #   cp .env.example .env && docker compose up -d
@@ -20,7 +20,7 @@
 #   6379  → Redis                           9090  → Prometheus
 #   3000  → Grafana                         9308  → Kafka Exporter
 #   9187  → Postgres Exporter               9121  → Redis Exporter
-#   8000  → API (REST + /metrics + /docs)
+#   8000  → API (REST + /metrics + /docs)   9092  → Analysis /metrics + /health
 
 name: seismosis
 
@@ -387,6 +387,49 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+
+  seismosis-analysis:
+    build:
+      context: ./services/analysis
+      dockerfile: Dockerfile
+    container_name: seismosis-analysis
+    networks:
+      - seismosis-net
+    environment:
+      KAFKA_BROKERS: "redpanda:9092"
+      KAFKA_TOPIC_RAW: "earthquakes.raw"
+      KAFKA_TOPIC_ENRICHED: "earthquakes.enriched"
+      KAFKA_TOPIC_ALERTS: "earthquakes.alerts"
+      KAFKA_TOPIC_DEAD_LETTER: "earthquakes.dead-letter"
+      KAFKA_GROUP_ID: "seismosis-analysis-group"
+      SCHEMA_REGISTRY_URL: "http://redpanda:8081"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
+      REDIS_URL: "redis://redis:6379"
+      METRICS_PORT: "9092"
+      ALERT_MAGNITUDE_THRESHOLD: "5.0"
+      AFTERSHOCK_WINDOW_DAYS: "30"
+      AFTERSHOCK_DISTANCE_KM: "100.0"
+      ANALYSIS_VERSION: "0.1.0"
+      LOG_LEVEL: "info"
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:9092/health || exit 1"
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     restart: unless-stopped
 
   seismosis-api:

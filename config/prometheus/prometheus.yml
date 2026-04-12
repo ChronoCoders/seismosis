@@ -99,6 +99,15 @@ scrape_configs:
           component: pipeline
           language: rust
 
+  - job_name: seismosis-analysis
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["seismosis-analysis:9092"]
+        labels:
+          service: analysis
+          component: pipeline
+          language: python
+
   - job_name: seismosis-api
     scrape_interval: 10s
     static_configs:
