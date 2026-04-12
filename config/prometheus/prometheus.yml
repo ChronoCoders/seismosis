@@ -1,0 +1,109 @@
+# ============================================================
+# Prometheus Configuration — Seismosis Platform
+# ============================================================
+# Scrapes:
+#   - Prometheus self
+#   - Redpanda admin API (public_metrics)
+#   - Kafka Exporter (consumer lag, topic metrics)
+#   - Postgres Exporter (db stats, table stats, connections)
+#   - Redis Exporter (memory, keyspace, persistence)
+#   - Application services (ingestion, storage, api)
+
+global:
+  scrape_interval: 15s          # Default scrape frequency
+  evaluation_interval: 15s      # Alert rule evaluation frequency
+  scrape_timeout: 10s
+  external_labels:
+    cluster: seismosis-local
+    environment: development
+
+# --- Alertmanager ------------------------------------------------
+# No Alertmanager in Phase 1. Alerts are visible in Prometheus UI
+# and forwarded to Grafana unified alerting.
+alerting:
+  alertmanagers: []
+
+# --- Alert Rules -------------------------------------------------
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# --- Scrape Configs ----------------------------------------------
+scrape_configs:
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus
+          component: monitoring
+
+  # Redpanda (built-in admin API metrics)
+  # /public_metrics: stable, documented metrics (preferred)
+  # /metrics: all internal metrics (verbose, use sparingly)
+  - job_name: redpanda
+    metrics_path: /public_metrics
+    static_configs:
+      - targets: ["redpanda:9644"]
+        labels:
+          service: redpanda
+          component: streaming
+    metric_relabel_configs:
+      # Drop high-cardinality internal metrics that bloat TSDB
+      - source_labels: [__name__]
+        regex: "redpanda_scheduler_.*|redpanda_reactor_.*"
+        action: drop
+
+  # Kafka Exporter (consumer group lag + topic offsets)
+  - job_name: kafka-exporter
+    scrape_interval: 30s          # Lag metrics don't need sub-15s resolution
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+        labels:
+          service: kafka-exporter
+          component: streaming
+
+  # Postgres Exporter
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: postgres
+          component: database
+
+  # Redis Exporter
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: redis
+          component: cache
+
+  # Application Services
+
+  - job_name: seismosis-ingestion
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["seismosis-ingestion:9091"]
+        labels:
+          service: ingestion
+          component: pipeline
+          language: rust
+
+  - job_name: seismosis-storage
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["seismosis-storage:9090"]
+        labels:
+          service: storage
+          component: pipeline
+          language: rust
+
+  - job_name: seismosis-api
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["seismosis-api:8000"]
+        labels:
+          service: api
+          component: serving
+          language: rust

@@ -1,0 +1,32 @@
+# ============================================================
+# Grafana Unified Alerting Provisioning — Seismosis Platform
+# ============================================================
+
+apiVersion: 1
+
+# Contact points — Phase 1 uses only the default email channel.
+# In Phase 2, add PagerDuty, Slack, SMS integrations here.
+contactPoints:
+  - orgId: 1
+    name: default-receiver
+    receivers:
+      - uid: default-email
+        type: email
+        settings:
+          addresses: "alerts@seismosis.internal"
+          subject: "[Seismosis] {{ .GroupLabels.alertname }}"
+        disableResolveMessage: false
+
+# Notification policies
+policies:
+  - orgId: 1
+    receiver: default-receiver
+    group_by: ["alertname", "service"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: default-receiver
+        matchers:
+          - severity =~ "critical|warning"
+        continue: false

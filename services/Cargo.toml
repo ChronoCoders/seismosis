@@ -1,0 +1,85 @@
+[workspace]
+members = [
+    "ingestion",
+    "storage",
+    "api",
+]
+resolver = "2"
+
+# ── Shared dependency versions ────────────────────────────────────────────────
+#
+# Each member crate inherits via `dep = { workspace = true }` and may add
+# extra features with `dep = { workspace = true, features = ["extra"] }`.
+# The workspace defines the minimum feature set; Cargo merges features upward.
+#
+# Convention: keep versions in sync across all services. Bump here first,
+# then run `cargo test --workspace` before committing.
+
+[workspace.dependencies]
+
+# ── Async runtime ────────────────────────────────────────────
+tokio = { version = "1", features = ["full"] }
+
+# ── Error handling ───────────────────────────────────────────
+thiserror = "1"
+anyhow = "1"
+
+# ── Serialisation ────────────────────────────────────────────
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ── Time ─────────────────────────────────────────────────────
+chrono = { version = "0.4", features = ["serde"] }
+
+# ── Structured logging ───────────────────────────────────────
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# ── Prometheus metrics ───────────────────────────────────────
+prometheus = { version = "0.13", features = ["process"] }
+
+# ── HTTP framework / metrics server ─────────────────────────
+# ingestion and storage use a minimal axum (no macros / matched-path);
+# api inherits this and adds those features in its own Cargo.toml.
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1"] }
+
+# ── Tower middleware ─────────────────────────────────────────
+tower = { version = "0.4", features = ["timeout", "util"] }
+
+# ── Kafka / Redpanda ─────────────────────────────────────────
+# cmake-build: vendored librdkafka compiled via cmake (required in containers).
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+
+# ── Avro serialisation ───────────────────────────────────────
+apache-avro = "0.16"
+
+# ── HTTP client (Schema Registry, source APIs) ───────────────
+# rustls-tls avoids a native OpenSSL dep in containers.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# ── Redis ────────────────────────────────────────────────────
+# Both ingestion and api use ConnectionManager (connection-manager feature).
+# Each crate adds it in their own Cargo.toml; the workspace carries the
+# common tokio-comp base.
+redis = { version = "0.25", features = ["tokio-comp"] }
+
+# ── PostgreSQL ───────────────────────────────────────────────
+# storage and api both use runtime-tokio-rustls + postgres + chrono.
+# api additionally uses uuid; storage uses json + macros.
+# The base set here covers the common subset.
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "macros"] }
+
+# ── IDs ──────────────────────────────────────────────────────
+uuid = { version = "1", features = ["serde", "v4"] }
+
+# ── Retry with exponential backoff ───────────────────────────
+tokio-retry = "0.3"
+
+# ── OpenAPI / Swagger ────────────────────────────────────────
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+
+# ── Dev / test ───────────────────────────────────────────────
+proptest           = "1"
+testcontainers     = "0.23"
+testcontainers-modules = { version = "0.11", features = ["kafka", "redis"] }

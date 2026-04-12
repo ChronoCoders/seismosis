@@ -1,0 +1,339 @@
+# ============================================================
+# Prometheus Alert Rules — Seismosis Platform
+# ============================================================
+# All alerts include:
+#   - severity label: critical | warning | info
+#   - runbook_url annotation: placeholder for ops runbook
+#   - summary and description annotations
+#
+# Evaluation interval: 15s (set in prometheus.yml)
+
+groups:
+
+  # ──────────────────────────────────────────────────────────
+  # SEISMIC EVENTS — Domain-level alerts
+  # ──────────────────────────────────────────────────────────
+  - name: seismic_events
+    rules:
+
+      # Significant earthquake detected — M≥5.0
+      # This is an informational alert to surface in Grafana.
+      # Real notifications are handled by the application layer.
+      - alert: SignificantEarthquakeDetected
+        expr: >
+          increase(seismosis_storage_events_upserted_total{magnitude_class="major"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          team: platform
+        annotations:
+          summary: "Significant seismic event (M≥7.0) detected"
+          description: >
+            A seismic event with magnitude ≥7.0 has been ingested into the pipeline
+            within the last 5 minutes. Verify alert generation on the earthquakes.alerts topic.
+          runbook_url: "https://docs.seismosis.internal/runbooks/significant-event"
+
+      # No events ingested in the last 10 minutes — possible source outage
+      - alert: SeismicIngestionStalled
+        expr: >
+          rate(seismosis_ingestion_events_published_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Seismic event ingestion has stalled"
+          description: >
+            No seismic events have been published to Redpanda in the last 10 minutes.
+            This could indicate an external source outage (USGS/EMSC) or an ingestion
+            service crash. Check: docker compose logs ingestion
+          runbook_url: "https://docs.seismosis.internal/runbooks/ingestion-stalled"
+
+      # High dead-letter queue rate — data quality or schema issue
+      - alert: DeadLetterQueueSpike
+        expr: >
+          rate(seismosis_ingestion_events_rejected_total[5m])
+          / rate(seismosis_ingestion_events_received_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Dead-letter queue rate exceeds 1%"
+          description: >
+            More than 1% of ingested events are being routed to earthquakes.dead-letter.
+            Current rate: {{ $value | humanizePercentage }}.
+            Common causes: schema version mismatch, upstream data format change,
+            coordinate validation failure.
+          runbook_url: "https://docs.seismosis.internal/runbooks/dlq-spike"
+
+      - alert: DeadLetterQueueCritical
+        expr: >
+          rate(seismosis_ingestion_events_rejected_total[5m])
+          / rate(seismosis_ingestion_events_received_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Dead-letter queue rate exceeds 5% — pipeline health at risk"
+          description: >
+            Critical: {{ $value | humanizePercentage }} of events are being rejected.
+            This level of DLQ activity indicates a systematic failure in the ingestion
+            pipeline. Immediate investigation required.
+          runbook_url: "https://docs.seismosis.internal/runbooks/dlq-critical"
+
+  # ──────────────────────────────────────────────────────────
+  # REDPANDA / KAFKA — Streaming infrastructure
+  # ──────────────────────────────────────────────────────────
+  - name: redpanda
+    rules:
+
+      # Consumer lag for alert topic — must be low (time-sensitive)
+      - alert: AlertTopicConsumerLagHigh
+        expr: >
+          kafka_consumer_group_lag{topic="earthquakes.alerts"} > 50
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Alert topic consumer lag is high: {{ $value }} messages"
+          description: >
+            Consumer group {{ $labels.consumergroup }} is {{ $value }} messages behind
+            on topic earthquakes.alerts. Alert delivery latency is degraded.
+            High-magnitude events may not be notified in time.
+          runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-alerts"
+
+      # Consumer lag for cleaned events — storage pipeline
+      - alert: ProcessedEventsConsumerLagHigh
+        expr: >
+          kafka_consumer_group_lag{topic="earthquakes.cleaned"} > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Cleaned events consumer lag: {{ $value }} messages"
+          description: >
+            Consumer group {{ $labels.consumergroup }} is lagging {{ $value }} messages
+            on earthquakes.cleaned. Database writes are falling behind.
+          runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-processed"
+
+      # Consumer lag for raw events — ingestion pipeline
+      - alert: RawEventsConsumerLagHigh
+        expr: >
+          kafka_consumer_group_lag{topic="earthquakes.raw"} > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Raw events consumer lag: {{ $value }} messages"
+          description: >
+            The storage service is {{ $value }} messages behind on earthquakes.raw.
+            Processing latency is increasing.
+          runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-raw"
+
+      # Redpanda broker unreachable
+      - alert: RedpandaBrokerDown
+        expr: >
+          up{job="redpanda"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redpanda broker is unreachable"
+          description: >
+            Prometheus cannot scrape the Redpanda admin API at redpanda:9644.
+            All pipeline services are likely disconnected. This is a critical outage.
+          runbook_url: "https://docs.seismosis.internal/runbooks/redpanda-down"
+
+  # ──────────────────────────────────────────────────────────
+  # POSTGRESQL — Database health
+  # ──────────────────────────────────────────────────────────
+  - name: postgresql
+    rules:
+
+      # Database connection pool near exhaustion
+      - alert: PostgresConnectionsHigh
+        expr: >
+          pg_stat_database_numbackends{datname="seismosis"}
+          / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL connections at {{ $value | humanizePercentage }} of max"
+          description: >
+            The seismosis database is using {{ $value | humanizePercentage }} of max_connections.
+            At this level, new connections may start failing. Consider adjusting pool sizes
+            in application services or increasing max_connections.
+          runbook_url: "https://docs.seismosis.internal/runbooks/postgres-connections"
+
+      - alert: PostgresConnectionsCritical
+        expr: >
+          pg_stat_database_numbackends{datname="seismosis"}
+          / pg_settings_max_connections > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL connections critical: {{ $value | humanizePercentage }} of max"
+          description: >
+            CRITICAL: PostgreSQL is at {{ $value | humanizePercentage }} connection capacity.
+            New connections are likely failing. Immediate action required.
+          runbook_url: "https://docs.seismosis.internal/runbooks/postgres-connections-critical"
+
+      # Database down
+      - alert: PostgresDown
+        expr: >
+          up{job="postgres-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL exporter unreachable — database may be down"
+          description: >
+            The postgres-exporter cannot connect to PostgreSQL. The database may be
+            down, restarting, or the exporter itself is misconfigured.
+          runbook_url: "https://docs.seismosis.internal/runbooks/postgres-down"
+
+      # Long-running transactions (> 5 minutes)
+      - alert: PostgresLongRunningTransaction
+        expr: >
+          pg_stat_activity_max_tx_duration{datname="seismosis"} > 300
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Long-running transaction: {{ $value | humanizeDuration }}"
+          description: >
+            A transaction in the seismosis database has been running for
+            {{ $value | humanizeDuration }}. Long transactions hold locks, can cause
+            table bloat, and block autovacuum. Investigate with pg_stat_activity.
+          runbook_url: "https://docs.seismosis.internal/runbooks/postgres-long-tx"
+
+      # Database size growth (> 20GB triggers review)
+      - alert: PostgresDatabaseSizeLarge
+        expr: >
+          pg_database_size_bytes{datname="seismosis"} > 20 * 1024 * 1024 * 1024
+        for: 30m
+        labels:
+          severity: info
+          team: platform
+        annotations:
+          summary: "PostgreSQL database size: {{ $value | humanize1024 }}B"
+          description: >
+            The seismosis database has grown beyond 20GiB. Review data retention
+            policies and consider partitioning or archival strategies.
+          runbook_url: "https://docs.seismosis.internal/runbooks/postgres-size"
+
+  # ──────────────────────────────────────────────────────────
+  # REDIS — Cache health
+  # ──────────────────────────────────────────────────────────
+  - name: redis
+    rules:
+
+      # Memory usage approaching maxmemory
+      - alert: RedisMemoryHigh
+        expr: >
+          redis_memory_used_bytes / redis_config_maxmemory > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis memory at {{ $value | humanizePercentage }} of limit"
+          description: >
+            Redis is using {{ $value | humanizePercentage }} of its maxmemory (512MB).
+            LRU eviction will start aggressively. Cache hit rates may drop.
+            Consider increasing maxmemory or reviewing cache TTLs.
+          runbook_url: "https://docs.seismosis.internal/runbooks/redis-memory"
+
+      - alert: RedisMemoryCritical
+        expr: >
+          redis_memory_used_bytes / redis_config_maxmemory > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redis memory critical: {{ $value | humanizePercentage }} of limit"
+          description: >
+            Redis is at {{ $value | humanizePercentage }} of maxmemory. Aggressive
+            eviction is in progress. Application performance is impacted.
+          runbook_url: "https://docs.seismosis.internal/runbooks/redis-memory-critical"
+
+      # Redis down
+      - alert: RedisDown
+        expr: >
+          up{job="redis-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redis is unreachable"
+          description: >
+            The redis-exporter cannot connect to Redis. All cache lookups will fall
+            through to PostgreSQL, significantly increasing database load.
+          runbook_url: "https://docs.seismosis.internal/runbooks/redis-down"
+
+      # Cache hit rate drop
+      - alert: RedisCacheHitRateLow
+        expr: >
+          rate(redis_keyspace_hits_total[5m])
+          / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis cache hit rate: {{ $value | humanizePercentage }}"
+          description: >
+            The Redis cache hit rate has dropped below 50%. This may indicate
+            that TTLs are too short, cache capacity is insufficient, or the access
+            pattern has changed significantly.
+          runbook_url: "https://docs.seismosis.internal/runbooks/redis-hit-rate"
+
+  # ──────────────────────────────────────────────────────────
+  # INFRASTRUCTURE — General infrastructure health
+  # ──────────────────────────────────────────────────────────
+  - name: infrastructure
+    rules:
+
+      # Any monitored service down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: >
+            Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}).
+            The service may have crashed or become unreachable.
+          runbook_url: "https://docs.seismosis.internal/runbooks/service-down"
+
+      # Prometheus storage approaching retention limit
+      - alert: PrometheusStorageHigh
+        expr: >
+          prometheus_tsdb_storage_blocks_bytes / (10 * 1024 * 1024 * 1024) > 0.8
+        for: 30m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Prometheus storage at {{ $value | humanizePercentage }} of 10GB cap"
+          description: >
+            Prometheus TSDB is using {{ $value | humanizePercentage }} of the 10GB
+            retention size limit. Old data will start being dropped. Review metrics
+            cardinality and retention settings.
+          runbook_url: "https://docs.seismosis.internal/runbooks/prometheus-storage"

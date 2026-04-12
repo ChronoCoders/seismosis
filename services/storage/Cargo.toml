@@ -1,0 +1,66 @@
+[package]
+name = "seismosis-storage"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Seismosis storage service — consumes earthquakes.raw, upserts to PostgreSQL"
+
+[[bin]]
+name = "seismosis-storage"
+path = "src/main.rs"
+
+[dependencies]
+# ── Async runtime ────────────────────────────────────────────
+tokio = { workspace = true }
+
+# ── Kafka / Redpanda consumer ────────────────────────────────
+rdkafka = { workspace = true }
+
+# ── Avro deserialisation ─────────────────────────────────────
+apache-avro = { workspace = true }
+
+# ── HTTP client (Schema Registry) ───────────────────────────
+# rustls-tls avoids a native OpenSSL dependency in the container.
+reqwest = { workspace = true }
+
+# ── PostgreSQL (PostGIS upsert, compile-time checked queries) ─
+# json  → serde_json::Value ↔ JSONB
+# chrono → DateTime<Utc>   ↔ TIMESTAMPTZ
+#
+# Compile-time query checking requires either a live database
+# reachable via DATABASE_URL, or offline mode:
+#   1. Run `cargo sqlx prepare` against the seismosis database.
+#   2. Commit the generated `.sqlx/` directory.
+#   3. Set SQLX_OFFLINE=true in CI / Docker build.
+sqlx = { workspace = true, features = ["json"] }
+
+# ── Error handling ───────────────────────────────────────────
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# ── Serialisation ────────────────────────────────────────────
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# ── Structured logging ───────────────────────────────────────
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# ── Prometheus metrics ───────────────────────────────────────
+prometheus = { workspace = true }
+
+# ── Metrics HTTP server ──────────────────────────────────────
+axum = { workspace = true }
+
+# ── Time ─────────────────────────────────────────────────────
+chrono = { workspace = true }
+
+# ── Retry with exponential backoff ───────────────────────────
+tokio-retry = { workspace = true }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

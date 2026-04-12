@@ -1,0 +1,46 @@
+# ============================================================
+# Redpanda Console Configuration — Seismosis Platform
+# ============================================================
+# Mounted at: /etc/console/config.yaml
+# Console UI: http://localhost:8080
+
+server:
+  listenPort: 8080
+  basePath: ""
+
+# ─── Kafka Connection ────────────────────────────────────────
+kafka:
+  brokers:
+    - redpanda:9092
+  clientId: seismosis-console
+  # TLS disabled for Docker-internal communication.
+  # Enable tls block for production external connections.
+  # tls:
+  #   enabled: true
+  #   caFilepath: /etc/console/certs/ca.crt
+
+  # ─── Schema Registry ───────────────────────────────────────
+  # Built into Redpanda — same broker, different port.
+  schemaRegistry:
+    enabled: true
+    urls:
+      - "http://redpanda:8081"
+
+# ─── Redpanda Admin API ──────────────────────────────────────
+# Enables Console to show cluster health, broker config,
+# partition leadership, and topic ACLs via the Redpanda admin API.
+redpanda:
+  adminApi:
+    enabled: true
+    urls:
+      - "http://redpanda:9644"
+
+# ─── Console Features ────────────────────────────────────────
+console:
+  enabled: true
+  topicDocumentation:
+    enabled: false
+
+# ─── Logging ─────────────────────────────────────────────────
+logger:
+  level: info

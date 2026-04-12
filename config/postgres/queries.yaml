@@ -1,0 +1,118 @@
+# ============================================================
+# postgres-exporter Custom Queries — Seismosis Platform
+# ============================================================
+# These queries extend the default postgres-exporter metrics
+# with Seismosis-specific business metrics.
+#
+# Mounted at: /etc/postgres-exporter/queries.yaml
+
+# Seismic event counts by quality indicator
+seismosis_events_by_quality:
+  query: |
+    SELECT
+      quality_indicator,
+      COUNT(*) AS event_count,
+      AVG(magnitude) AS avg_magnitude,
+      MAX(magnitude) AS max_magnitude
+    FROM seismology.seismic_events
+    WHERE event_time >= NOW() - INTERVAL '24 hours'
+    GROUP BY quality_indicator
+  metrics:
+    - quality_indicator:
+        usage: "LABEL"
+        description: "Event quality indicator (A/B/C/D)"
+    - event_count:
+        usage: "GAUGE"
+        description: "Number of seismic events with this quality in the last 24 hours"
+    - avg_magnitude:
+        usage: "GAUGE"
+        description: "Average magnitude for this quality tier in the last 24 hours"
+    - max_magnitude:
+        usage: "GAUGE"
+        description: "Maximum magnitude recorded in the last 24 hours"
+
+# Event ingestion rate over time windows
+seismosis_events_ingested:
+  query: |
+    SELECT
+      '1h'  AS window,
+      COUNT(*) AS count
+    FROM seismology.seismic_events WHERE created_at >= NOW() - INTERVAL '1 hour'
+    UNION ALL
+    SELECT
+      '24h' AS window,
+      COUNT(*) AS count
+    FROM seismology.seismic_events WHERE created_at >= NOW() - INTERVAL '24 hours'
+  metrics:
+    - window:
+        usage: "LABEL"
+        description: "Time window (1h, 24h)"
+    - count:
+        usage: "GAUGE"
+        description: "Number of events ingested in this window"
+
+# DLQ (staging) pending events
+seismosis_dlq_pending:
+  query: |
+    SELECT
+      failure_reason,
+      COUNT(*) AS pending_count,
+      MIN(received_at) AS oldest_event_at
+    FROM staging.raw_events
+    WHERE resolved_at IS NULL
+    GROUP BY failure_reason
+  metrics:
+    - failure_reason:
+        usage: "LABEL"
+        description: "DLQ failure classification"
+    - pending_count:
+        usage: "GAUGE"
+        description: "Number of unresolved DLQ events with this failure reason"
+
+# Active station count
+seismosis_stations_active:
+  query: |
+    SELECT
+      network_code,
+      COUNT(*) AS station_count,
+      COUNT(CASE WHEN last_heartbeat_at >= NOW() - INTERVAL '5 minutes' THEN 1 END) AS recently_seen
+    FROM seismology.stations
+    WHERE is_active = TRUE
+    GROUP BY network_code
+  metrics:
+    - network_code:
+        usage: "LABEL"
+        description: "Seismic network code"
+    - station_count:
+        usage: "GAUGE"
+        description: "Total active stations in this network"
+    - recently_seen:
+        usage: "GAUGE"
+        description: "Stations with heartbeat in the last 5 minutes"
+
+# Table bloat indicator (for autovacuum health monitoring)
+seismosis_table_dead_tuples:
+  query: |
+    SELECT
+      schemaname,
+      relname AS table_name,
+      n_dead_tup AS dead_tuples,
+      n_live_tup AS live_tuples,
+      last_vacuum,
+      last_autovacuum
+    FROM pg_stat_user_tables
+    WHERE schemaname IN ('seismology', 'monitoring', 'staging')
+      AND n_dead_tup > 1000
+  metrics:
+    - schemaname:
+        usage: "LABEL"
+        description: "Schema name"
+    - table_name:
+        usage: "LABEL"
+        description: "Table name"
+    - dead_tuples:
+        usage: "GAUGE"
+        description: "Number of dead (unvacuumed) tuples"
+    - live_tuples:
+        usage: "GAUGE"
+        description: "Number of live tuples"

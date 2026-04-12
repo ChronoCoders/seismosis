@@ -1,0 +1,68 @@
+[package]
+name = "seismosis-api"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Seismosis REST API — serves earthquake events from PostgreSQL with Redis caching"
+
+[[bin]]
+name = "seismosis-api"
+path = "src/main.rs"
+
+[dependencies]
+# ── Async runtime ────────────────────────────────────────────
+tokio = { workspace = true }
+
+# ── HTTP framework ───────────────────────────────────────────
+# Inherits tokio + http1 from workspace; adds macros and matched-path.
+axum = { workspace = true, features = ["macros", "matched-path", "query"] }
+# timeout: ServiceBuilder::timeout() + TimeoutLayer used in routes/mod.rs
+# util:    ServiceBuilder and other combinators
+tower = { workspace = true }
+
+# ── PostgreSQL (compile-time checked queries, PostGIS spatial) ─
+# uuid   → Uuid ↔ UUID
+# chrono → DateTime<Utc> ↔ TIMESTAMPTZ
+# json   → serde_json::Value ↔ JSONB
+#
+# Compile-time query checking requires SQLX_OFFLINE=true + .sqlx/ in CI.
+sqlx = { workspace = true, features = ["uuid", "json"] }
+
+# ── Redis cache ──────────────────────────────────────────────
+# connection-manager: auto-reconnecting async handle used in cache.rs / main.rs.
+redis = { workspace = true, features = ["connection-manager"] }
+
+# ── OpenAPI / Swagger ────────────────────────────────────────
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
+# ── IDs ──────────────────────────────────────────────────────
+uuid = { workspace = true }
+
+# ── Error handling ───────────────────────────────────────────
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# ── Serialisation ────────────────────────────────────────────
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# ── Time ─────────────────────────────────────────────────────
+chrono = { workspace = true }
+
+# ── Structured logging ───────────────────────────────────────
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# ── Prometheus metrics ───────────────────────────────────────
+prometheus = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

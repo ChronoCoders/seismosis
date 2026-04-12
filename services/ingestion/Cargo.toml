@@ -1,0 +1,76 @@
+[package]
+name = "seismosis-ingestion"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Seismosis earthquake ingestion service — polls USGS/EMSC, normalises, Avro-encodes, produces to Redpanda"
+
+[[bin]]
+name = "seismosis-ingestion"
+path = "src/main.rs"
+
+[dependencies]
+# ── Async runtime ────────────────────────────────────────────
+tokio = { workspace = true }
+
+# ── HTTP client ──────────────────────────────────────────────
+# rustls-tls avoids a native OpenSSL dependency in the container.
+# gzip: decompress USGS/EMSC API responses.
+reqwest = { workspace = true, features = ["gzip"] }
+
+# ── Kafka / Redpanda producer ────────────────────────────────
+# cmake-build: vendored librdkafka compiled via cmake.
+# Requires cmake to be installed (handled in Dockerfile).
+rdkafka = { workspace = true }
+
+# ── Avro serialisation ───────────────────────────────────────
+apache-avro = { workspace = true }
+
+# ── Error handling ───────────────────────────────────────────
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# ── Serialisation ────────────────────────────────────────────
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# ── Structured logging ───────────────────────────────────────
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# ── Prometheus metrics ───────────────────────────────────────
+prometheus = { workspace = true }
+
+# ── Metrics HTTP server ──────────────────────────────────────
+axum = { workspace = true }
+
+# ── Redis (deduplication store) ──────────────────────────────
+# connection-manager: auto-reconnecting async handle, not in workspace base.
+redis = { workspace = true, features = ["connection-manager"] }
+
+# ── Time ─────────────────────────────────────────────────────
+chrono = { workspace = true }
+
+# ── Retry with exponential backoff ───────────────────────────
+tokio-retry = { workspace = true }
+
+# ── LRU cache (Redis-offline dedup fallback) ─────────────────
+lru = "0.12"
+
+# ── Async trait objects ──────────────────────────────────────
+async-trait = "0.1"
+
+# ── Concurrent futures (join_all for parallel source polling) ─
+futures = { version = "0.3", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+proptest           = { workspace = true }
+testcontainers     = { workspace = true }
+testcontainers-modules = { workspace = true }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

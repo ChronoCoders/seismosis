@@ -1,0 +1,22 @@
+# ============================================================
+# Grafana Dashboard Provisioning — Seismosis Platform
+# ============================================================
+# Grafana loads all .json files from the specified path.
+# Changes to dashboard JSON files are picked up on Grafana
+# startup or when the provisioning watcher triggers.
+
+apiVersion: 1
+
+providers:
+
+  - name: seismosis-dashboards
+    orgId: 1
+    folder: Seismosis
+    folderUid: seismosis-folder
+    type: file
+    disableDeletion: true       # Prevent accidental deletion via UI
+    updateIntervalSeconds: 30   # Poll for dashboard file changes
+    allowUiUpdates: false       # UI edits are ephemeral (don't save to file)
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

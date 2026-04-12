@@ -1,0 +1,501 @@
+---
+# Seismosis — Earthquake Analysis & Risk Platform
+# docker-compose.yml — Production-ready local stack
+#
+# Services:
+#   Streaming    : Redpanda (Kafka-compatible) + Schema Registry (built-in) + Console
+#   Database     : PostgreSQL 16 + PostGIS 3.4
+#   Cache        : Redis 7.2
+#   Monitoring   : Prometheus + Grafana
+#   Exporters    : Kafka Exporter + Postgres Exporter + Redis Exporter
+#   Applications : seismosis-ingestion, seismosis-storage, seismosis-api
+#
+# Usage:
+#   cp .env.example .env && docker compose up -d
+#
+# Port map (host → container):
+#   19092 → Redpanda Kafka (external)       18081 → Schema Registry (external)
+#   18082 → Pandaproxy (external)           9644  → Redpanda Admin API
+#   8080  → Redpanda Console                5433  → PostgreSQL (5433 avoids conflict with local postgres)
+#   6379  → Redis                           9090  → Prometheus
+#   3000  → Grafana                         9308  → Kafka Exporter
+#   9187  → Postgres Exporter               9121  → Redis Exporter
+#   8000  → API (REST + /metrics + /docs)
+
+name: seismosis
+
+networks:
+  seismosis-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  redpanda-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+services:
+
+  # ═══════════════════════════════════════════════════════════════
+  # STREAMING — Redpanda
+  # Kafka-compatible broker with built-in Schema Registry.
+  # Single-broker dev/staging config. For multi-broker production,
+  # see docs/adr/ADR-0001-redpanda-topology.md
+  # ═══════════════════════════════════════════════════════════════
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.4
+    container_name: seismosis-redpanda
+    networks:
+      - seismosis-net
+    ports:
+      - "19092:19092"   # External Kafka API (host access)
+      - "18081:18081"   # External Schema Registry (host access)
+      - "18082:18082"   # External Pandaproxy REST API (host access)
+      - "9644:9644"     # Admin API + Prometheus metrics
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr
+      - internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr
+      - internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr
+      - internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --smp
+      - "2"
+      - --memory
+      - "1G"
+      - --reserve-memory
+      - "0M"
+      - --overprovisioned
+      - --default-log-level=info
+      - --set
+      - redpanda.auto_create_topics_enabled=false
+      - --set
+      - redpanda.kafka_batch_max_bytes=1048576
+      - --set
+      - redpanda.log_segment_size=134217728
+      - --set
+      - redpanda.compacted_log_segment_size=67108864
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "rpk cluster health --api-urls http://redpanda:9644 | grep -q 'Healthy:.*true'"
+      interval: 10s
+      timeout: 8s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    container_name: seismosis-console
+    networks:
+      - seismosis-net
+    ports:
+      - "8080:8080"   # Redpanda Console UI
+    environment:
+      CONFIG_FILEPATH: /etc/console/config.yaml
+    volumes:
+      - ./config/redpanda/console.yaml:/etc/console/config.yaml:ro
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # Topic initialization — runs once, exits cleanly after creating all topics.
+  # Idempotent: rpk topic create is a no-op if the topic already exists.
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.4
+    container_name: seismosis-redpanda-init
+    hostname: redpanda-init
+    networks:
+      - seismosis-net
+    environment:
+      # Override the default localhost broker in /etc/redpanda/redpanda.yaml
+      RPK_BROKERS: "redpanda:9092"
+      RPK_ADMIN_HOSTS: "redpanda:9644"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo '==> Creating earthquakes.raw (ingestion input, 7d retention)'
+        rpk topic create earthquakes.raw --partitions 6 --replicas 1 --topic-config retention.ms=604800000 --topic-config compression.type=lz4 --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
+        echo '==> Creating earthquakes.cleaned (validated events, 14d retention)'
+        rpk topic create earthquakes.cleaned --partitions 6 --replicas 1 --topic-config retention.ms=1209600000 --topic-config compression.type=lz4 --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
+        echo '==> Creating earthquakes.enriched (magnitude + depth computed, 14d retention)'
+        rpk topic create earthquakes.enriched --partitions 6 --replicas 1 --topic-config retention.ms=1209600000 --topic-config compression.type=lz4 --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
+        echo '==> Creating earthquakes.alerts (M>=5.0 triggers, 30d retention)'
+        rpk topic create earthquakes.alerts --partitions 3 --replicas 1 --topic-config retention.ms=2592000000 --topic-config compression.type=zstd --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
+        echo '==> Creating earthquakes.dead-letter (processing failures, 30d retention)'
+        rpk topic create earthquakes.dead-letter --partitions 3 --replicas 1 --topic-config retention.ms=2592000000 --topic-config compression.type=zstd --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
+        echo '==> All topics created successfully'
+        rpk topic list
+    restart: "no"
+
+  # ═══════════════════════════════════════════════════════════════
+  # DATABASE — PostgreSQL 16 + PostGIS 3.4
+  # Spatial data store for processed seismic events and stations.
+  # ═══════════════════════════════════════════════════════════════
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: seismosis-postgres
+    networks:
+      - seismosis-net
+    ports:
+      - "5433:5432"   # Exposed for local development tooling (DBeaver, psql, sqlx prepare)
+                      # Port 5432 may conflict with a local postgres; 5433 avoids this.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seismosis}
+      POSTGRES_USER: ${POSTGRES_USER:-seismosis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./config/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./config/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./config/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command: >
+      postgres
+        -c config_file=/etc/postgresql/postgresql.conf
+        -c hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "pg_isready -U ${POSTGRES_USER:-seismosis} -d ${POSTGRES_DB:-seismosis} -h localhost"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════
+  # CACHE — Redis 7.2
+  # Hot lookup cache for recent events and station metadata.
+  # Configured with AOF+RDB persistence and LRU eviction.
+  # ═══════════════════════════════════════════════════════════════
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: seismosis-redis
+    networks:
+      - seismosis-net
+    ports:
+      - "6379:6379"   # Exposed for local development tooling
+    volumes:
+      - redis-data:/data
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    environment:
+      # Redis password injected via redis.conf requirepass directive.
+      # The exporter reads REDIS_PASSWORD separately.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - |
+          if [ -n "${REDIS_PASSWORD:-}" ]; then
+            redis-cli -a "${REDIS_PASSWORD}" ping | grep -q PONG
+          else
+            redis-cli ping | grep -q PONG
+          fi
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════
+  # MONITORING — Prometheus
+  # Scrapes all exporters + Redpanda admin API + application metrics.
+  # 30-day retention, 10GB cap.
+  # ═══════════════════════════════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: seismosis-prometheus
+    networks:
+      - seismosis-net
+    ports:
+      - "9090:9090"   # Prometheus UI + API
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=10GB"
+      - "--storage.tsdb.wal-compression"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+      - "--query.timeout=2m"
+      - "--query.max-concurrency=20"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:9090/-/healthy || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════
+  # MONITORING — Grafana 11
+  # Pre-provisioned with Prometheus datasource and earthquake
+  # overview dashboard. Plugins: worldmap-panel, piechart-panel.
+  # ═══════════════════════════════════════════════════════════════
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: seismosis-grafana
+    networks:
+      - seismosis-net
+    ports:
+      - "3000:3000"   # Grafana UI
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_THEME: dark
+      GF_SERVER_DOMAIN: localhost
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/earthquake_overview.json
+      GF_INSTALL_PLUGINS: >-
+        grafana-worldmap-panel,
+        grafana-piechart-panel
+      # Unified alerting (Grafana 8+)
+      GF_ALERTING_ENABLED: "false"
+      GF_UNIFIED_ALERTING_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════
+  # APPLICATION SERVICES
+  # ═══════════════════════════════════════════════════════════════
+
+  seismosis-ingestion:
+    build:
+      context: ./services
+      dockerfile: ingestion/Dockerfile
+    container_name: seismosis-ingestion
+    networks:
+      - seismosis-net
+    environment:
+      KAFKA_BROKERS: "redpanda:9092"
+      SCHEMA_REGISTRY_URL: "http://redpanda:8081"
+      KAFKA_TOPIC_RAW: "earthquakes.raw"
+      KAFKA_TOPIC_DEAD_LETTER: "earthquakes.dead-letter"
+      REDIS_URL: "redis://redis:6379"
+      METRICS_PORT: "9091"
+      RUST_LOG: "info"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:9091/metrics || exit 1"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  seismosis-storage:
+    build:
+      context: ./services
+      dockerfile: storage/Dockerfile
+    container_name: seismosis-storage
+    networks:
+      - seismosis-net
+    environment:
+      KAFKA_BROKERS: "redpanda:9092"
+      SCHEMA_REGISTRY_URL: "http://redpanda:8081"
+      KAFKA_TOPIC_RAW: "earthquakes.raw"
+      KAFKA_CONSUMER_GROUP: "seismosis-storage"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
+      METRICS_PORT: "9090"
+      RUST_LOG: "info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:9090/metrics || exit 1"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  seismosis-api:
+    build:
+      context: ./services
+      dockerfile: api/Dockerfile
+    container_name: seismosis-api
+    networks:
+      - seismosis-net
+    ports:
+      - "8000:8000"   # REST API + /metrics + /docs
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
+      REDIS_URL: "redis://redis:6379"
+      HTTP_PORT: "8000"
+      RUST_LOG: "info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:8000/health || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════
+  # EXPORTERS
+  # ═══════════════════════════════════════════════════════════════
+
+  # Kafka Exporter — consumer group lag and topic partition metrics
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.7.0
+    container_name: seismosis-kafka-exporter
+    networks:
+      - seismosis-net
+    ports:
+      - "9308:9308"   # Prometheus metrics
+    command:
+      - "--kafka.server=redpanda:9092"
+      - "--kafka.version=2.6.0"
+      - "--web.listen-address=:9308"
+      - "--topic.filter=^earthquakes\\..*"
+      - "--group.filter=^seismosis.*"
+      - "--log.level=warn"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:9308/metrics || exit 1"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Postgres Exporter — database statistics and table metrics
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: seismosis-postgres-exporter
+    networks:
+      - seismosis-net
+    ports:
+      - "9187:9187"   # Prometheus metrics
+    environment:
+      DATA_SOURCE_NAME: >-
+        postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}?sslmode=disable
+      PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+    volumes:
+      - ./config/postgres/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:9187/metrics || exit 1"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # Redis Exporter — memory, keyspace, connection, and persistence metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.63.0
+    container_name: seismosis-redis-exporter
+    networks:
+      - seismosis-net
+    ports:
+      - "9121:9121"   # Prometheus metrics
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_EXPORTER_LOG_FORMAT: logfmt
+      REDIS_EXPORTER_INCL_SYSTEM_METRICS: "true"
+      REDIS_EXPORTER_COUNT_KEYS: "seismosis:*"
+    depends_on:
+      redis:
+        condition: service_healthy
+    # redis_exporter is a scratch image (no shell/wget) — health is monitored via Prometheus scraping.
+    healthcheck:
+      disable: true
+    restart: unless-stopped

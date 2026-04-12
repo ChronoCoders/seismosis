@@ -1,0 +1,57 @@
+# Environment secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+*.local
+
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# sqlx offline query cache — regenerate with: cargo sqlx prepare --workspace
+.sqlx/
+
+# Claude Code configuration and project instructions
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Local test data / seismograms
+data/local/
+*.mseed
+*.seed
+
+# Secrets and certificates
+*.pem
+*.key
+*.crt
+certs/
+
+# Logs
+*.log
+logs/

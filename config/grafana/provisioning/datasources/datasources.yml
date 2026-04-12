@@ -1,0 +1,34 @@
+# ============================================================
+# Grafana Datasource Provisioning — Seismosis Platform
+# ============================================================
+# Provisioned datasources are managed by this file.
+# Changes here take effect on Grafana restart.
+# Provisioned datasources cannot be deleted via the UI
+# (deleteDatasources must be set manually or via this file).
+
+apiVersion: 1
+
+datasources:
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    uid: seismosis-prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: "15s"
+      queryTimeout: "120s"
+      exemplarTraceIdDestinations: []
+      # Prometheus 2.52+ supports remote exemplars.
+      # Enable when traces are wired up in Phase 2.
+      disableMetricsLookup: false
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: "2.52.0"
+      cacheLevel: "Low"
+      incrementalQuerying: true
+      incrementalQueryOverlapWindow: "10m"
