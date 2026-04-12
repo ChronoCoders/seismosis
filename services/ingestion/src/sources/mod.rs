@@ -60,14 +60,17 @@ pub fn emsc_quality(evtype: Option<&str>) -> &'static str {
     }
 }
 
-/// Map an AFAD event type string to a quality indicator character.
+/// Map AFAD v2 event fields to a quality indicator character.
 ///
-/// AFAD `type`: "Ke" = Kesinleşmiş (manually confirmed). Other values are
-/// automatic or preliminary solutions.
-pub fn afad_quality(event_type: Option<&str>) -> &'static str {
-    match event_type {
-        Some("Ke") => "B",
-        _ => "D",
+/// The AFAD v2 `/apiv2/event/filter` endpoint does not expose a review-status
+/// field. The `type` field is the magnitude scale (e.g. "ML"), not an event
+/// classification. Quality is inferred from `isEventUpdate`:
+///   - `true`  → "B" — record was subsequently updated/corrected (reviewed)
+///   - `false` | `None` → "C" — official national agency, automated solution
+pub fn afad_quality(is_event_update: Option<bool>) -> &'static str {
+    match is_event_update {
+        Some(true) => "B",
+        _ => "C",
     }
 }
 

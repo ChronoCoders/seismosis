@@ -142,7 +142,7 @@ async fn main() -> anyhow::Result<()> {
     let sources: Vec<Box<dyn SeismicSource>> = vec![
         Box::new(UsgsSource::new(http_client.clone(), Arc::clone(&config))),
         Box::new(EmscSource::new(http_client.clone(), Arc::clone(&config))),
-        Box::new(AfadSource::new(http_client.clone(), Arc::clone(&config))),
+        Box::new(AfadSource::new(http_client.clone(), Arc::clone(&config), Arc::clone(&metrics))),
     ];
 
     // ── Shutdown channel ──────────────────────────────────────────────────

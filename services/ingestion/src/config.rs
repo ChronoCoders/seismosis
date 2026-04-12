@@ -42,7 +42,14 @@ pub struct Config {
     /// EMSC FDSNWS base URL (no trailing slash).
     pub emsc_api_url: String,
 
-    /// AFAD earthquake API base URL (no trailing slash).
+    /// AFAD earthquake API base URL (no trailing slash, must NOT include `/filter`).
+    ///
+    /// The ingestion service appends `/filter?…` to this value. Setting this
+    /// to the full endpoint URL (e.g. `…/apiv2/event/filter`) will produce
+    /// double-suffixed requests (`…/filter/filter?…`) that return 404.
+    ///
+    /// Correct:   `https://deprem.afad.gov.tr/apiv2/event`
+    /// Incorrect: `https://deprem.afad.gov.tr/apiv2/event/filter`
     pub afad_api_url: String,
 
     /// Per-request HTTP timeout.

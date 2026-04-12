@@ -60,9 +60,3 @@ prometheus = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-strip = true
-panic = "abort"
