@@ -3,6 +3,7 @@ members = [
     "ingestion",
     "storage",
     "api",
+    "websocket",
 ]
 resolver = "2"
 

@@ -108,6 +108,15 @@ scrape_configs:
           component: pipeline
           language: python
 
+  - job_name: seismosis-websocket
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["seismosis-websocket:9094"]
+        labels:
+          service: websocket
+          component: serving
+          language: rust
+
   - job_name: seismosis-api
     scrape_interval: 10s
     static_configs:
