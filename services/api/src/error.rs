@@ -8,12 +8,6 @@ pub enum ApiError {
     #[error("config: {0}")]
     Config(String),
 
-    #[error("database: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("redis: {0}")]
-    Redis(String),
-
     #[error("metrics: {0}")]
     Metrics(String),
 }
@@ -34,9 +28,6 @@ pub enum RequestError {
 
     #[error("database error")]
     Database(#[from] sqlx::Error),
-
-    #[error("cache error")]
-    Cache(String),
 }
 
 /// JSON body for all error responses.
@@ -66,18 +57,6 @@ impl IntoResponse for RequestError {
             ),
             RequestError::Database(e) => {
                 tracing::error!(error = %e, "Database error in request handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorBody {
-                        error: "internal_error".to_owned(),
-                        detail: None,
-                    },
-                )
-            }
-            RequestError::Cache(e) => {
-                tracing::warn!(error = %e, "Cache error in request handler");
-                // Cache errors degrade gracefully; we still serve from DB.
-                // This variant is only returned when degradation isn't possible.
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ErrorBody {

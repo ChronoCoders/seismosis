@@ -32,9 +32,6 @@ pub struct Config {
 
     /// TCP port for the Prometheus `/metrics` endpoint.
     pub metrics_port: u16,
-
-    /// Injected into log fields and pipeline audit records.
-    pub pipeline_version: String,
 }
 
 impl Config {
@@ -65,7 +62,6 @@ impl Config {
                     field: "METRICS_PORT",
                     detail: "value exceeds u16::MAX (65535)".to_owned(),
                 })?,
-            pipeline_version: var_str("PIPELINE_VERSION", env!("CARGO_PKG_VERSION")),
         })
     }
 }
