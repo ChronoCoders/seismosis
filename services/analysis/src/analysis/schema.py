@@ -5,11 +5,14 @@ The enriched schema carries all fields from earthquakes.raw-value plus
 analysis-derived enrichment.  The alert schema is a compact subset for
 the earthquakes.alerts topic.
 """
+from __future__ import annotations
+
+from typing import Any
 
 ENRICHED_SUBJECT = "earthquakes.enriched-value"
 ALERT_SUBJECT = "earthquakes.alerts-value"
 
-ENRICHED_SCHEMA: dict = {
+ENRICHED_SCHEMA: dict[str, Any] = {
     "type": "record",
     "name": "EnrichedEarthquakeEvent",
     "namespace": "com.seismosis",
@@ -103,7 +106,7 @@ ENRICHED_SCHEMA: dict = {
     ],
 }
 
-ALERT_SCHEMA: dict = {
+ALERT_SCHEMA: dict[str, Any] = {
     "type": "record",
     "name": "EarthquakeAlert",
     "namespace": "com.seismosis",

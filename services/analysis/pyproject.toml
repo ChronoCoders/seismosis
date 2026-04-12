@@ -24,6 +24,10 @@ dev = [
     "testcontainers[redpanda,postgresql,redis]>=4.3.0",
     "pytest-cov>=5.0.0",
     "requests-mock>=1.12.0",
+    "mypy>=1.10.0",
+    "types-requests>=2.31.0",
+    "types-redis>=4.6.0",
+    "types-psycopg2>=2.9.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -34,6 +38,14 @@ testpaths = ["tests"]
 timeout = 300
 log_cli = true
 log_cli_level = "INFO"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# confluent-kafka ships no stubs; ignore missing imports for it and fastavro.
+[[tool.mypy.overrides]]
+module = ["confluent_kafka.*", "fastavro.*", "psycopg2.*", "prometheus_client.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py311"

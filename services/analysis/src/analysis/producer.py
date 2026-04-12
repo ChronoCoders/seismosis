@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Optional
 
-from confluent_kafka import KafkaException, Producer
+from confluent_kafka import KafkaError, KafkaException, Message, Producer
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class KafkaProducer:
     ) -> None:
         error_holder: list[Optional[Exception]] = [None]
 
-        def _on_delivery(err, _msg):
+        def _on_delivery(err: Optional[KafkaError], _msg: Message) -> None:
             if err:
                 error_holder[0] = KafkaException(err)
 

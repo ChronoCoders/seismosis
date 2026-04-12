@@ -42,6 +42,7 @@ from typing import Optional
 
 import fastavro
 import structlog
+import structlog.types
 from prometheus_client import CollectorRegistry, CONTENT_TYPE_LATEST, generate_latest
 
 from .aftershock import classify_aftershock, find_mainshock
@@ -85,7 +86,7 @@ def _start_metrics_server(port: int, prom_registry: CollectorRegistry) -> HTTPSe
     Start a daemon thread serving /metrics (Prometheus) and /health.
     """
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
+        def do_GET(self) -> None:
             if self.path == "/metrics":
                 output = generate_latest(prom_registry)
                 self.send_response(200)
@@ -100,7 +101,7 @@ def _start_metrics_server(port: int, prom_registry: CollectorRegistry) -> HTTPSe
                 self.send_response(404)
                 self.end_headers()
 
-        def log_message(self, fmt, *args):
+        def log_message(self, fmt: str, *args: object) -> None:
             pass  # suppress per-request access log noise
 
     server = HTTPServer(("0.0.0.0", port), _Handler)
@@ -124,7 +125,7 @@ def process_message(
     cache: Cache,
     metrics: Metrics,
     config: Config,
-    logger,
+    logger: structlog.types.BoundLogger,
 ) -> None:
     """
     Decode, enrich, and produce a single Kafka message.
@@ -376,7 +377,7 @@ def main() -> None:
     # ── Graceful shutdown ──────────────────────────────────────────────────
     shutdown = threading.Event()
 
-    def _handle_signal(sig, _frame):
+    def _handle_signal(sig: int, _frame: object) -> None:
         log.info("shutdown_signal_received", signal=sig)
         shutdown.set()
 
@@ -424,6 +425,22 @@ def main() -> None:
                 error=str(exc),
                 exc_info=True,
             )
+            # Route to DLQ so the message is not silently dropped.
+            # process_message handles its own DLQ routing for decode and
+            # produce failures; this catches any exception that escapes
+            # those guards (e.g. from magnitude refinement or risk estimation).
+            producer.produce_dead_letter(
+                config.kafka_topic_dead_letter,
+                key=f"{msg.partition()}-{msg.offset()}",
+                failure_reason="unexpected_error",
+                failure_detail=str(exc),
+                original_topic=msg.topic(),
+                partition=msg.partition(),
+                offset=msg.offset(),
+                source_id=None,
+                raw_payload_hex=msg.value().hex() if msg.value() else "",
+            )
+            metrics.dead_letter_total.labels(failure_reason="unexpected_error").inc()
         finally:
             metrics.processing_duration_seconds.labels(
                 topic=config.kafka_topic_raw
