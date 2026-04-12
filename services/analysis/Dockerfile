@@ -18,10 +18,16 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends wget \
     && rm -rf /var/lib/apt/lists/*
 
+RUN useradd -r -u 1001 -s /sbin/nologin analysis
+
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY src/ ./src/
+
+RUN chown -R analysis:analysis /app
+
+USER analysis
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1

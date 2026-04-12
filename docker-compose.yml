@@ -20,7 +20,7 @@
 #   6379  → Redis                           9090  → Prometheus
 #   3000  → Grafana                         9308  → Kafka Exporter
 #   9187  → Postgres Exporter               9121  → Redis Exporter
-#   8000  → API (REST + /metrics + /docs)   9092  → Analysis /metrics + /health
+#   8000  → API (REST + /metrics + /docs)   9092  → Analysis /metrics + /health (internal only)
 
 name: seismosis
 
@@ -407,9 +407,12 @@ services:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
       REDIS_URL: "redis://redis:6379"
       METRICS_PORT: "9092"
+      DB_POOL_MIN: "2"
+      DB_POOL_MAX: "10"
       ALERT_MAGNITUDE_THRESHOLD: "5.0"
       AFTERSHOCK_WINDOW_DAYS: "30"
       AFTERSHOCK_DISTANCE_KM: "100.0"
+      EVENT_CACHE_TTL_SECS: "3600"
       ANALYSIS_VERSION: "0.1.0"
       LOG_LEVEL: "info"
       PYTHONUNBUFFERED: "1"
@@ -429,7 +432,7 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 60s
-      retries: 3
+      retries: 5
     restart: unless-stopped
 
   seismosis-api:
