@@ -8,7 +8,8 @@
 #   Cache        : Redis 7.2
 #   Monitoring   : Prometheus + Grafana
 #   Exporters    : Kafka Exporter + Postgres Exporter + Redis Exporter
-#   Applications : seismosis-ingestion, seismosis-storage, seismosis-api, seismosis-analysis
+#   Applications : seismosis-ingestion, seismosis-storage, seismosis-api, seismosis-analysis,
+#                  seismosis-frontend
 #
 # Usage:
 #   cp .env.example .env && docker compose up -d
@@ -22,6 +23,7 @@
 #   9187  → Postgres Exporter               9121  → Redis Exporter
 #   8000  → API (REST + /metrics + /docs)   9093  → WebSocket (client connections)
 #   9092  → Analysis /metrics + /health (internal only)
+#   3001  → Frontend (Next.js Turkish SPA)
 
 name: seismosis
 
@@ -498,6 +500,41 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
+
+  seismosis-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # WebSocket URL is embedded at build time (NEXT_PUBLIC_*).
+        # The browser connects directly to the exposed host port, so this
+        # must be the address reachable from the end-user's browser — not
+        # the internal Docker network name.
+        NEXT_PUBLIC_WS_URL: "ws://localhost:9093"
+        NEXT_PUBLIC_MAP_STYLE: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
+    container_name: seismosis-frontend
+    networks:
+      - seismosis-net
+    ports:
+      - "3001:3000"   # Turkish SPA (3001 avoids conflict with Grafana on 3000)
+    environment:
+      # Server-side API proxy target (Next.js rewrites /api/v1/* → here)
+      API_URL: "http://seismosis-api:8000"
+      NODE_ENV: "production"
+    depends_on:
+      seismosis-api:
+        condition: service_healthy
+      seismosis-websocket:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
