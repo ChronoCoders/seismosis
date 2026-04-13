@@ -96,18 +96,22 @@ impl Hub {
     /// via `Arc` clones — no per-client copies of the event data are made.
     pub async fn broadcast_enriched(&self, event: EnrichedEvent) {
         let msg = Arc::new(ServerMessage::Earthquake(event));
+        // Extract the inner event reference before the read lock so the loop
+        // body can call matches_enriched directly without a per-iteration
+        // `if let` on the known variant.
+        let ServerMessage::Earthquake(ref enriched) = *msg else {
+            unreachable!("msg was just constructed as Earthquake")
+        };
         let guard = self.clients.read().await;
 
         for (id, entry) in guard.iter() {
-            if let ServerMessage::Earthquake(ref e) = *msg {
-                if entry.filter.matches_enriched(e) {
-                    self.try_send(*id, &entry.tx, Arc::clone(&msg), "enriched");
-                } else {
-                    self.metrics
-                        .messages_filtered_total
-                        .with_label_values(&["enriched"])
-                        .inc();
-                }
+            if entry.filter.matches_enriched(enriched) {
+                self.try_send(*id, &entry.tx, Arc::clone(&msg), "enriched");
+            } else {
+                self.metrics
+                    .messages_filtered_total
+                    .with_label_values(&["enriched"])
+                    .inc();
             }
         }
 
@@ -120,18 +124,21 @@ impl Hub {
     /// Fan-out an alert event to all clients whose filter matches.
     pub async fn broadcast_alert(&self, event: AlertEvent) {
         let msg = Arc::new(ServerMessage::Alert(event));
+        // Extract the inner event reference before the read lock (same pattern
+        // as broadcast_enriched — avoids a fragile inner `if let` in the loop).
+        let ServerMessage::Alert(ref alerted) = *msg else {
+            unreachable!("msg was just constructed as Alert")
+        };
         let guard = self.clients.read().await;
 
         for (id, entry) in guard.iter() {
-            if let ServerMessage::Alert(ref a) = *msg {
-                if entry.filter.matches_alert(a) {
-                    self.try_send(*id, &entry.tx, Arc::clone(&msg), "alert");
-                } else {
-                    self.metrics
-                        .messages_filtered_total
-                        .with_label_values(&["alert"])
-                        .inc();
-                }
+            if entry.filter.matches_alert(alerted) {
+                self.try_send(*id, &entry.tx, Arc::clone(&msg), "alert");
+            } else {
+                self.metrics
+                    .messages_filtered_total
+                    .with_label_values(&["alert"])
+                    .inc();
             }
         }
 

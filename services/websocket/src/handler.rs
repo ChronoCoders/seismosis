@@ -44,14 +44,13 @@ pub async fn handle_connection(
     mut shutdown: watch::Receiver<bool>,
     default_min_magnitude: f64,
 ) {
-    // Capture the HTTP upgrade request's query string so we can parse the
-    // initial subscription filter.  `accept_hdr_async` calls the callback
-    // synchronously during the handshake before the future resolves.
-    let captured_query = Arc::new(std::sync::Mutex::new(String::new()));
-    let cq = Arc::clone(&captured_query);
-
-    let ws_result = accept_hdr_async(stream, move |req: &Request, resp: Response| {
-        *cq.lock().unwrap() = req.uri().query().unwrap_or("").to_owned();
+    // Capture the HTTP upgrade request's query string.  The `accept_hdr_async`
+    // callback fires synchronously during the handshake (before the future
+    // resolves), so a stack-allocated Mutex is sufficient — no Arc needed.
+    let captured_query = std::sync::Mutex::new(String::new());
+    let ws_result = accept_hdr_async(stream, |req: &Request, resp: Response| {
+        *captured_query.lock().unwrap_or_else(|e| e.into_inner()) =
+            req.uri().query().unwrap_or("").to_owned();
         Ok(resp)
     })
     .await;
@@ -64,7 +63,9 @@ pub async fn handle_connection(
         }
     };
 
-    let query = captured_query.lock().unwrap().clone();
+    // After the await the future (and the closure it held) are gone; the
+    // Mutex is no longer borrowed and into_inner() can move out the String.
+    let query = captured_query.into_inner().unwrap_or_default();
     let filter = SubscriptionFilter::from_query(&query, default_min_magnitude);
 
     let client_id = Uuid::new_v4();
@@ -100,6 +101,29 @@ pub async fn handle_connection(
             .connections_closed_total
             .with_label_values(&["error"])
             .inc();
+        return;
+    }
+
+    // Guard: watch::changed() only fires on value transitions.  If shutdown
+    // was already set before this task starts (possible when a client connects
+    // in the shutdown window), the select loop would never see it.
+    if *shutdown.borrow() {
+        let _ = ws_write
+            .send(WsMessage::Close(Some(CloseFrame {
+                code: CloseCode::Away,
+                reason: "server shutting down".into(),
+            })))
+            .await;
+        hub.remove(client_id).await;
+        metrics
+            .connections_closed_total
+            .with_label_values(&["server_shutdown"])
+            .inc();
+        info!(
+            client_id = %client_id,
+            peer = %addr,
+            "Client connected during shutdown window — closing immediately",
+        );
         return;
     }
 
@@ -140,9 +164,21 @@ pub async fn handle_connection(
                                 break "server_shutdown";
                             }
                             other => {
-                                if let Some(json) = other.to_json() {
-                                    if ws_write.send(WsMessage::Text(json)).await.is_err() {
-                                        break "error";
+                                match other.to_json() {
+                                    Some(json) => {
+                                        if ws_write.send(WsMessage::Text(json)).await.is_err() {
+                                            break "error";
+                                        }
+                                    }
+                                    None => {
+                                        // to_json() returns None only for Close, which is
+                                        // handled above.  A None here means a new
+                                        // ServerMessage variant was added without updating
+                                        // to_json() — log so it surfaces in structured logs.
+                                        warn!(
+                                            client_id = %client_id,
+                                            "to_json() returned None for non-Close message — skipping"
+                                        );
                                     }
                                 }
                             }

@@ -66,10 +66,13 @@ impl SubscriptionFilter {
                 Some(k) if !k.is_empty() => k.trim(),
                 _ => continue,
             };
-            let val = match kv.next() {
+            let raw_val = match kv.next() {
                 Some(v) if !v.is_empty() => v.trim(),
                 _ => continue,
             };
+            // Percent-decode the value so clients can safely encode special
+            // characters (e.g. source_network=US%2CJP decodes to "US,JP").
+            let val = percent_encoding::percent_decode_str(raw_val).decode_utf8_lossy();
 
             match key {
                 "min_magnitude" => {

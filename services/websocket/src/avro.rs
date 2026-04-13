@@ -56,7 +56,10 @@ impl SchemaCache {
     pub async fn get(&self, schema_id: u32) -> Result<Schema, WsError> {
         // Fast path: schema is already cached.
         {
-            let guard = self.cache.lock().unwrap();
+            let guard = self.cache.lock().map_err(|_| WsError::SchemaRegistry {
+                url: format!("{}/schemas/ids/{schema_id}", self.base_url),
+                detail: "schema cache mutex poisoned".into(),
+            })?;
             if let Some(schema) = guard.get(&schema_id) {
                 return Ok(schema.clone());
             }
@@ -93,7 +96,10 @@ impl SchemaCache {
         let schema = Schema::parse_str(&body.schema)?;
 
         {
-            let mut guard = self.cache.lock().unwrap();
+            let mut guard = self.cache.lock().map_err(|_| WsError::SchemaRegistry {
+                url: url.clone(),
+                detail: "schema cache mutex poisoned".into(),
+            })?;
             guard.insert(schema_id, schema.clone());
         }
 

@@ -42,6 +42,7 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::Message;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
 use avro::{AvroDecoder, SchemaCache};
@@ -94,19 +95,31 @@ async fn main() -> anyhow::Result<()> {
     // Pre-warm the cache by resolving both subjects to schema IDs.
     // This ensures the first consumed message doesn't pay a registry RTT and
     // surfaces misconfiguration (wrong subject names, SR unreachable) at startup.
-    pre_warm_cache(&schema_cache, &config).await?;
+    pre_warm_cache(&schema_cache, &config, &http_client).await?;
 
     // ── Kafka consumer ────────────────────────────────────────────────────
     // auto.offset.reset = latest: the WebSocket service is real-time.
     // Historical replay is the REST API's responsibility, not ours.
-    // enable.auto.commit = false: we call store_offset_from_message() after
-    // each successful fan-out so offsets advance even if 0 clients match.
+    //
+    // enable.auto.offset.store = false + enable.auto.commit = true:
+    // we call store_offset_from_message() after processing each message so
+    // only fully-processed offsets enter the commit queue.  The auto-commit
+    // timer (5 s) handles the actual Kafka RPCs, keeping per-message overhead
+    // off the hot path.
+    //
+    // NOTE: Multiple WebSocket instances that share the same group.id will
+    // partition-split consumption — each instance sees only a subset of events,
+    // so clients on that instance miss the rest.  For a fan-out topology
+    // (every instance delivers every event), use a unique group.id per instance
+    // (e.g. append a hostname or UUID suffix).  The current single-instance
+    // Phase 2 deployment is unaffected.
     let consumer: Arc<StreamConsumer> = Arc::new(
         ClientConfig::new()
             .set("bootstrap.servers", &config.kafka_brokers)
             .set("group.id", &config.kafka_group_id)
             .set("auto.offset.reset", "latest")
             .set("enable.auto.commit", "true")
+            .set("enable.auto.offset.store", "false")
             .set("auto.commit.interval.ms", "5000")
             .set("session.timeout.ms", "30000")
             .set("heartbeat.interval.ms", "10000")
@@ -181,15 +194,21 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = shutdown_tx.send(true);
 
-    // Ask the hub to send Close frames to all connected clients.
-    hub.close_all().await;
-
-    // Wait for consumer and accept loop to finish.
-    if let Err(e) = consume_handle.await {
-        error!(error = ?e, "Consume loop task panicked");
-    }
+    // Drain in order:
+    //   1. Accept loop first — it joins all per-client tasks internally via
+    //      JoinSet, so no new clients can register after it returns.
+    //   2. Hub close_all — safety net for any client that connected in the
+    //      narrow window between shutdown_tx.send and the accept loop stopping.
+    //   3. Consume loop — stops Kafka polling and flushes stored offsets.
+    //   4. Metrics server — graceful HTTP drain.
     if let Err(e) = accept_handle.await {
         error!(error = ?e, "Accept loop task panicked");
+    }
+
+    hub.close_all().await;
+
+    if let Err(e) = consume_handle.await {
+        error!(error = ?e, "Consume loop task panicked");
     }
     if let Err(e) = metrics_handle.await {
         error!(error = ?e, "Metrics server task panicked");
@@ -201,21 +220,23 @@ async fn main() -> anyhow::Result<()> {
 
 // ─── Schema Registry pre-warm ─────────────────────────────────────────────────
 
+/// Resolves both Avro subjects to schema IDs and populates the decoder cache.
+///
+/// Using the caller-supplied `client` (which has timeouts and a User-Agent
+/// configured) instead of a bare `reqwest::get()` call.
 async fn pre_warm_cache(
     cache: &SchemaCache,
     config: &Config,
+    client: &reqwest::Client,
 ) -> anyhow::Result<()> {
-    // Resolve subject → schema_id → parse and cache both schemas so the first
-    // real message is handled without a synchronous registry round-trip.
-    for (subject, path) in [
-        (ENRICHED_SUBJECT, "versions/latest"),
-        (ALERTS_SUBJECT, "versions/latest"),
-    ] {
+    for subject in [ENRICHED_SUBJECT, ALERTS_SUBJECT] {
         let url = format!(
-            "{}/subjects/{}/{}",
-            config.schema_registry_url, subject, path
+            "{}/subjects/{}/versions/latest",
+            config.schema_registry_url, subject,
         );
-        let resp = reqwest::get(&url)
+        let resp = client
+            .get(&url)
+            .send()
             .await
             .map_err(|e| anyhow::anyhow!("Schema Registry pre-warm GET {url}: {e}"))?;
 
@@ -258,6 +279,15 @@ async fn run_consume_loop(
     mut shutdown: watch::Receiver<bool>,
 ) {
     info!("Consume loop started");
+
+    // Guard: watch::changed() only fires on value transitions.  If shutdown
+    // was already set before we enter the select loop, check explicitly so
+    // the signal is not silently missed.
+    if *shutdown.borrow() {
+        info!("Consume loop: shutdown already signalled on entry — exiting");
+        return;
+    }
+
     let mut stream = consumer.stream();
 
     loop {
@@ -289,6 +319,9 @@ async fn run_consume_loop(
                     Some(p) => p,
                     None => {
                         warn!(topic, "Received tombstone message (null payload) — skipping");
+                        if let Err(e) = consumer.store_offset_from_message(&msg) {
+                            warn!(error = %e, "Failed to store offset for tombstone");
+                        }
                         continue;
                     }
                 };
@@ -300,11 +333,21 @@ async fn run_consume_loop(
                         if topic == config.kafka_topic_enriched {
                             match from_value::<EnrichedEvent>(&avro_value) {
                                 Ok(event) => {
-                                    hub.broadcast_enriched(event).await;
-                                    metrics
-                                        .broadcast_duration_seconds
-                                        .with_label_values(&["enriched"])
-                                        .observe(t0.elapsed().as_secs_f64());
+                                    if !event.ml_magnitude.is_finite() {
+                                        warn!(
+                                            topic,
+                                            partition = msg.partition(),
+                                            offset = msg.offset(),
+                                            ml_magnitude = event.ml_magnitude,
+                                            "EnrichedEvent has non-finite ml_magnitude — skipping"
+                                        );
+                                    } else {
+                                        hub.broadcast_enriched(event).await;
+                                        metrics
+                                            .broadcast_duration_seconds
+                                            .with_label_values(&["enriched"])
+                                            .observe(t0.elapsed().as_secs_f64());
+                                    }
                                 }
                                 Err(e) => {
                                     warn!(
@@ -319,11 +362,21 @@ async fn run_consume_loop(
                         } else if topic == config.kafka_topic_alerts {
                             match from_value::<AlertEvent>(&avro_value) {
                                 Ok(event) => {
-                                    hub.broadcast_alert(event).await;
-                                    metrics
-                                        .broadcast_duration_seconds
-                                        .with_label_values(&["alert"])
-                                        .observe(t0.elapsed().as_secs_f64());
+                                    if !event.ml_magnitude.is_finite() {
+                                        warn!(
+                                            topic,
+                                            partition = msg.partition(),
+                                            offset = msg.offset(),
+                                            ml_magnitude = event.ml_magnitude,
+                                            "AlertEvent has non-finite ml_magnitude — skipping"
+                                        );
+                                    } else {
+                                        hub.broadcast_alert(event).await;
+                                        metrics
+                                            .broadcast_duration_seconds
+                                            .with_label_values(&["alert"])
+                                            .observe(t0.elapsed().as_secs_f64());
+                                    }
                                 }
                                 Err(e) => {
                                     warn!(
@@ -349,6 +402,12 @@ async fn run_consume_loop(
                         );
                     }
                 }
+
+                // Advance the stored offset regardless of processing outcome.
+                // The auto-commit timer flushes stored offsets to Kafka every 5 s.
+                if let Err(e) = consumer.store_offset_from_message(&msg) {
+                    warn!(error = %e, "Failed to store offset");
+                }
             }
         }
     }
@@ -369,6 +428,15 @@ async fn run_accept_loop(
 ) {
     info!(port = config.ws_port, "WebSocket accept loop started");
 
+    // Guard: watch::changed() only fires on transitions.  Check the current
+    // state explicitly so a pre-entry shutdown is not silently missed.
+    if *shutdown.borrow() {
+        info!("Accept loop: shutdown already signalled on entry — exiting");
+        return;
+    }
+
+    let mut client_tasks: JoinSet<()> = JoinSet::new();
+
     loop {
         tokio::select! {
             biased;
@@ -385,11 +453,12 @@ async fn run_accept_loop(
                     Ok((stream, addr)) => {
                         // Spawn an independent task per client so one slow
                         // client cannot block the accept loop or other clients.
+                        // Tracked via JoinSet so panics surface at shutdown.
                         let hub = Arc::clone(&hub);
                         let metrics = Arc::clone(&metrics);
                         let shutdown_rx = shutdown.clone();
                         let default_mag = config.default_min_magnitude;
-                        tokio::spawn(async move {
+                        client_tasks.spawn(async move {
                             handler::handle_connection(
                                 stream,
                                 addr,
@@ -406,6 +475,15 @@ async fn run_accept_loop(
                     }
                 }
             }
+        }
+    }
+
+    // Drain all in-flight client tasks.  Each task exits promptly because it
+    // received the shutdown signal via the watch channel.  Errors here indicate
+    // a task panic — log them so they surface in structured logs.
+    while let Some(result) = client_tasks.join_next().await {
+        if let Err(e) = result {
+            error!(error = ?e, "Per-client task panicked");
         }
     }
 

@@ -48,3 +48,6 @@ axum = { workspace = true }
 
 # ── IDs ──────────────────────────────────────────────────────
 uuid = { workspace = true }
+
+# ── URL percent-decoding (query parameter values) ────────────
+percent-encoding = "2"
