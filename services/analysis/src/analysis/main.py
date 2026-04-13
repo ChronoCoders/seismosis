@@ -64,9 +64,7 @@ from .schema import ALERT_SCHEMA, ALERT_SUBJECT, ENRICHED_SCHEMA, ENRICHED_SUBJE
 def _configure_logging(level: str) -> None:
     structlog.configure(
         processors=[
-            structlog.stdlib.filter_by_level,
             structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
@@ -94,9 +92,12 @@ def _start_metrics_server(port: int, prom_registry: CollectorRegistry) -> HTTPSe
                 self.end_headers()
                 self.wfile.write(output)
             elif self.path == "/health":
+                body = b"ok"
                 self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(b"ok")
+                self.wfile.write(body)
             else:
                 self.send_response(404)
                 self.end_headers()

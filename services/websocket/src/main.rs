@@ -93,9 +93,12 @@ async fn main() -> anyhow::Result<()> {
     let decoder = Arc::new(AvroDecoder::new(Arc::clone(&schema_cache)));
 
     // Pre-warm the cache by resolving both subjects to schema IDs.
-    // This ensures the first consumed message doesn't pay a registry RTT and
-    // surfaces misconfiguration (wrong subject names, SR unreachable) at startup.
-    pre_warm_cache(&schema_cache, &config, &http_client).await?;
+    // Best-effort: 404 (schema not yet registered) is a warn, not a fatal error.
+    // Non-404 failures (SR unreachable, auth) are still fatal to surface
+    // misconfiguration at startup rather than silently at first message.
+    if let Err(e) = pre_warm_cache(&schema_cache, &config, &http_client).await {
+        warn!(error = %e, "Schema cache pre-warm failed — will fetch schemas on demand");
+    }
 
     // ── Kafka consumer ────────────────────────────────────────────────────
     // auto.offset.reset = latest: the WebSocket service is real-time.
@@ -240,6 +243,14 @@ async fn pre_warm_cache(
             .await
             .map_err(|e| anyhow::anyhow!("Schema Registry pre-warm GET {url}: {e}"))?;
 
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            warn!(
+                subject,
+                "Schema Registry pre-warm: subject not yet registered (schema will be \
+                 fetched on first message)"
+            );
+            continue;
+        }
         if !resp.status().is_success() {
             return Err(anyhow::anyhow!(
                 "Schema Registry pre-warm: subject '{}' returned HTTP {}",

@@ -30,11 +30,13 @@ COPY Cargo.toml Cargo.lock ./
 COPY ingestion/Cargo.toml ingestion/
 COPY storage/Cargo.toml   storage/
 COPY api/Cargo.toml       api/
+COPY websocket/Cargo.toml websocket/
 
-RUN mkdir -p ingestion/src storage/src api/src \
+RUN mkdir -p ingestion/src storage/src api/src websocket/src \
     && echo 'fn main() {}' > ingestion/src/main.rs \
     && echo 'fn main() {}' > storage/src/main.rs \
-    && echo 'fn main() {}' > api/src/main.rs
+    && echo 'fn main() {}' > api/src/main.rs \
+    && echo 'fn main() {}' > websocket/src/main.rs
 
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --locked -p seismosis-storage

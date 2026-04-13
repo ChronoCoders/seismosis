@@ -1,13 +1,13 @@
 """Prometheus metrics for the analysis service."""
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram, Registry
+from prometheus_client import CollectorRegistry, Counter, Histogram
 
 
 class Metrics:
-    """All Prometheus metrics registered against a caller-provided Registry."""
+    """All Prometheus metrics registered against a caller-provided CollectorRegistry."""
 
-    def __init__(self, registry: Registry) -> None:
+    def __init__(self, registry: CollectorRegistry) -> None:
         self.messages_consumed_total = Counter(
             "seismosis_analysis_messages_consumed_total",
             "Total Kafka messages consumed from earthquakes.raw",
