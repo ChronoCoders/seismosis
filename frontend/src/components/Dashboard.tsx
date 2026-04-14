@@ -172,19 +172,20 @@ function NetworkChip({ network }: { network: string }) {
 }
 
 function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
+  // Compute directly — no useMemo so the result is always in sync with the
+  // current `events` prop (which is already filtered by the Turkey toggle).
   const cutoff = Date.now() - 24 * 3_600_000;
-  const strongest = useMemo(() => {
-    const recent = events.filter(
-      (e) => new Date(e.event_time).getTime() > cutoff,
-    );
-    if (recent.length === 0) return null;
-    return recent.reduce((best, e) => {
-      const mag = e.ml_magnitude ?? e.magnitude;
-      const bestMag = best.ml_magnitude ?? best.magnitude;
-      return mag > bestMag ? e : best;
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events]);
+  const recent = events.filter(
+    (e) => new Date(e.event_time).getTime() > cutoff,
+  );
+  const strongest =
+    recent.length === 0
+      ? null
+      : recent.reduce((best, e) =>
+          (e.ml_magnitude ?? e.magnitude) > (best.ml_magnitude ?? best.magnitude)
+            ? e
+            : best,
+        );
 
   if (!strongest) return null;
 
@@ -266,33 +267,31 @@ function PanelSection({
 function RecentAlertsPanel({ alerts }: { alerts: AlertEvent[] }) {
   if (alerts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 py-5 select-none opacity-50">
-        <div className="w-9 h-9 rounded-full bg-surface-elevated border border-border flex items-center justify-center">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            className="text-text-muted"
-          >
-            <path
-              d="M8 1.5L2 5v5c0 3.31 2.67 6.4 6 7.12 3.33-.72 6-3.81 6-7.12V5L8 1.5z"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M5.5 8l2 2 3-3"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
+      <div className="flex flex-col items-center justify-center gap-3 py-6 select-none opacity-70">
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 48 48"
+          fill="none"
+          className="text-text-muted"
+        >
+          <path
+            d="M24 4L6 14v14c0 9.94 7.58 19.22 18 21.37C34.42 47.22 42 37.94 42 28V14L24 4z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M16 24l6 6 10-10"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
         <div className="text-center leading-snug">
-          <p className="text-xs font-medium text-text-muted">Uyarı yok</p>
-          <p className="text-[10px] text-text-muted mt-0.5">Eşik değeri aşılmadı</p>
+          <p className="text-sm font-medium text-text-secondary">Uyarı yok</p>
+          <p className="text-xs text-text-muted mt-0.5">Eşik değeri aşılmadı</p>
         </div>
       </div>
     );
