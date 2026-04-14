@@ -108,6 +108,10 @@ services:
       timeout: 8s
       retries: 15
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     restart: unless-stopped
 
   redpanda-console:
@@ -201,6 +205,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -237,6 +245,10 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -276,6 +288,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -322,6 +338,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -358,6 +378,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   seismosis-storage:
@@ -390,6 +414,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   seismosis-analysis:
@@ -436,6 +464,10 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     restart: unless-stopped
 
   seismosis-websocket:
@@ -471,6 +503,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   seismosis-api:
@@ -500,6 +536,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   seismosis-frontend:
@@ -535,6 +575,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -567,6 +611,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 64m
     restart: unless-stopped
 
   # Postgres Exporter — database statistics and table metrics
@@ -595,6 +643,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 64m
     restart: unless-stopped
 
   # Redis Exporter — memory, keyspace, connection, and persistence metrics
@@ -617,4 +669,8 @@ services:
     # redis_exporter is a scratch image (no shell/wget) — health is monitored via Prometheus scraping.
     healthcheck:
       disable: true
+    deploy:
+      resources:
+        limits:
+          memory: 64m
     restart: unless-stopped
