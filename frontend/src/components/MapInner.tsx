@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Map, {
   Source,
@@ -8,6 +8,7 @@ import Map, {
   Popup,
   NavigationControl,
   ScaleControl,
+  type MapRef,
   type MapLayerMouseEvent,
   type CircleLayer,
   type FillLayer,
@@ -152,9 +153,22 @@ const ALERT_COLORS: Record<string, string> = {
   YELLOW: '#eab308',
 };
 
+// Turkey bounding box [west, south, east, north] — used for fitBounds on load.
+const TURKEY_BBOX: [[number, number], [number, number]] = [
+  [25.0, 35.5],  // SW corner
+  [44.8, 42.5],  // NE corner
+];
+
 export default function MapInner({ events }: MapInnerProps) {
   const router = useRouter();
+  const mapRef = useRef<MapRef>(null);
   const [popup, setPopup] = useState<PopupState | null>(null);
+
+  // fitBounds fires after the style is fully loaded, guaranteeing Turkey fills
+  // the viewport regardless of the tile style's own default center.
+  const onLoad = useCallback(() => {
+    mapRef.current?.fitBounds(TURKEY_BBOX, { padding: 20, duration: 0 });
+  }, []);
 
   // GeoJSON for earthquake dots
   const geojson = useMemo<FeatureCollection>(() => ({
@@ -227,10 +241,12 @@ export default function MapInner({ events }: MapInnerProps) {
 
   return (
     <Map
+      ref={mapRef}
       initialViewState={{ longitude: 35.0, latitude: 39.0, zoom: 5.5 }}
       style={{ width: '100%', height: '100%' }}
       mapStyle={MAP_STYLE}
       interactiveLayerIds={['earthquakes']}
+      onLoad={onLoad}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onClick={onClick}

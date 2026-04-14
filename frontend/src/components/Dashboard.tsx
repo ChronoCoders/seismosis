@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import type {
   DisplayEvent,
   AlertEvent,
@@ -14,7 +15,11 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { Header } from '@/components/Header';
 import { EarthquakeList } from '@/components/EarthquakeList';
 import { MagnitudeChart } from '@/components/RegionalStats';
-import { formatMagnitude } from '@/lib/magnitude';
+import {
+  getMagnitudeInfo,
+  formatMagnitude,
+  formatRelativeTime,
+} from '@/lib/magnitude';
 
 const EarthquakeMap = dynamic(() => import('@/components/MapInner'), {
   ssr: false,
@@ -31,140 +36,396 @@ const WS_URL =
     : '';
 
 const MAX_EVENTS = 100;
+const MAX_ALERTS = 10;
 
-// ── Risk status banner ────────────────────────────────────────────────────────
+// Turkey bounding box for the filter toggle
+const TURKEY_BBOX = { minLon: 25, maxLon: 45, minLat: 35, maxLat: 43 };
 
-interface RiskLevel {
-  label: string;
-  desc: string;
-  dotColor: string;
-  barClass: string;
-  textClass: string;
-}
-
-function computeRiskLevel(bands: BandStats[]): RiskLevel {
-  const m = Object.fromEntries(bands.map((b) => [b.band, b]));
-  const strong = m['strong'];
-  const major  = m['major'];
-  const moderate = m['moderate'];
-  const light  = m['light'];
-
-  if ((strong?.count_24h ?? 0) > 0 || (major?.count_24h ?? 0) > 0) {
-    const maxMag = Math.max(strong?.max_mag_24h ?? 0, major?.max_mag_24h ?? 0);
-    return {
-      label: 'TEHLİKE',
-      desc: `Son 24 saatte M ${formatMagnitude(maxMag)} güçlü deprem kaydedildi`,
-      dotColor: '#ef4444',
-      barClass: 'bg-red-950/60 border-mag-red/50',
-      textClass: 'text-mag-red',
-    };
-  }
-  if ((moderate?.count_24h ?? 0) > 0) {
-    return {
-      label: 'UYARI',
-      desc: `Son 24 saatte ${moderate.count_24h} orta büyüklüklü deprem (M 4–6)`,
-      dotColor: '#f97316',
-      barClass: 'bg-orange-950/40 border-mag-orange/40',
-      textClass: 'text-mag-orange',
-    };
-  }
-  if ((light?.count_24h ?? 0) > 0) {
-    return {
-      label: 'AKTİF',
-      desc: `Son 24 saatte ${light.count_24h} hafif deprem (M 2–4)`,
-      dotColor: '#eab308',
-      barClass: 'bg-yellow-950/20 border-mag-yellow/30',
-      textClass: 'text-mag-yellow',
-    };
-  }
-  return {
-    label: 'NORMAL',
-    desc: 'Son 24 saatte kayda değer sismik aktivite yok',
-    dotColor: '#22c55e',
-    barClass: 'bg-green-950/20 border-mag-green/30',
-    textClass: 'text-mag-green',
-  };
-}
-
-function RiskBanner({ bands }: { bands: BandStats[] }) {
-  if (bands.length === 0) {
-    return (
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-surface shrink-0">
-        <span className="w-2 h-2 rounded-full bg-text-muted shrink-0 animate-pulse" />
-        <span className="text-xs text-text-muted">Sismik durum yükleniyor…</span>
-      </div>
-    );
-  }
-
-  const risk = computeRiskLevel(bands);
-
-  // Build a compact count summary for active bands
-  const BAND_SHORT: Record<string, string> = {
-    minor: 'çok hafif', light: 'hafif', moderate: 'orta',
-    strong: 'güçlü', major: 'büyük',
-  };
-  const summary = bands
-    .filter((b) => b.count_24h > 0)
-    .map((b) => `${b.count_24h} ${BAND_SHORT[b.band] ?? b.band}`)
-    .join(' · ');
-
+function inTurkey(e: DisplayEvent) {
   return (
-    <div className={`flex items-center gap-3 px-4 py-2 border-b shrink-0 ${risk.barClass}`}>
-      <span
-        className="w-2 h-2 rounded-full shrink-0"
-        style={{ backgroundColor: risk.dotColor }}
-      />
-      <span className={`text-xs font-bold tracking-widest shrink-0 ${risk.textClass}`}>
-        {risk.label}
+    e.longitude >= TURKEY_BBOX.minLon &&
+    e.longitude <= TURKEY_BBOX.maxLon &&
+    e.latitude  >= TURKEY_BBOX.minLat &&
+    e.latitude  <= TURKEY_BBOX.maxLat
+  );
+}
+
+// ── Derived stats from BandStats ──────────────────────────────────────────────
+
+function derivedStats(bands: BandStats[]) {
+  const total24h  = bands.reduce((s, b) => s + b.count_24h, 0);
+  const total1h   = bands.reduce((s, b) => s + b.count_1h,  0);
+  const maxMag24h = bands.reduce((m, b) => Math.max(m, b.max_mag_24h ?? 0), 0);
+  const rate24h   = total24h > 0 ? total24h / 24 : 0;
+  return { total24h, total1h, maxMag24h, rate24h };
+}
+
+// ── Risk indicator from bands ─────────────────────────────────────────────────
+
+function riskFromBands(bands: BandStats[]): { color: string; label: string } {
+  const m = Object.fromEntries(bands.map((b) => [b.band, b]));
+  if ((m['strong']?.count_24h ?? 0) > 0 || (m['major']?.count_24h ?? 0) > 0)
+    return { color: '#ef4444', label: 'TEHLİKE' };
+  if ((m['moderate']?.count_24h ?? 0) > 0)
+    return { color: '#f97316', label: 'UYARI' };
+  if ((m['light']?.count_24h ?? 0) > 0)
+    return { color: '#eab308', label: 'AKTİF' };
+  return { color: '#22c55e', label: 'NORMAL' };
+}
+
+// ── Top statistics bar ────────────────────────────────────────────────────────
+
+interface StatTileProps {
+  label: string;
+  value: React.ReactNode;
+  valueClass?: string;
+  sub?: string;
+}
+
+function StatTile({ label, value, valueClass = 'text-text-primary', sub }: StatTileProps) {
+  return (
+    <div className="flex flex-col justify-center px-5 py-2 border-r border-border last:border-0 min-w-[120px]">
+      <span className="text-[9px] font-semibold uppercase tracking-widest text-text-muted leading-none">
+        {label}
       </span>
-      <span className="text-xs text-text-secondary truncate">{risk.desc}</span>
-      {summary && (
-        <span className="ml-auto text-xs font-mono text-text-muted shrink-0 hidden sm:block">
-          {summary}
-        </span>
+      <span className={`text-lg font-bold font-mono leading-tight mt-1 ${valueClass}`}>
+        {value}
+      </span>
+      {sub && (
+        <span className="text-[9px] text-text-muted mt-0.5 leading-none">{sub}</span>
       )}
     </div>
   );
 }
 
-// ── Active alert banner ───────────────────────────────────────────────────────
+function TopStatsBar({
+  bands,
+  events,
+}: {
+  bands: BandStats[];
+  events: DisplayEvent[];
+}) {
+  if (bands.length === 0) return null;
 
-const ALERT_BANNER_COLORS: Record<string, string> = {
-  RED:    'border-mag-red bg-red-950/80 text-mag-red',
-  ORANGE: 'border-mag-orange bg-orange-950/80 text-mag-orange',
-  YELLOW: 'border-mag-yellow bg-yellow-950/80 text-mag-yellow',
-};
+  const { total24h, total1h, maxMag24h, rate24h } = derivedStats(bands);
+  const reviewed = events.filter(
+    (e) => e.quality_indicator === 'A' || e.quality_indicator === 'B',
+  ).length;
+  const automatic = events.length - reviewed;
+  const maxInfo = getMagnitudeInfo(maxMag24h);
 
-function AlertBanner({ alert, onDismiss }: { alert: AlertEvent; onDismiss: () => void }) {
-  const cls = ALERT_BANNER_COLORS[alert.alert_level] ?? ALERT_BANNER_COLORS['YELLOW'];
   return (
-    <div className={`border-b px-4 py-2.5 flex items-center gap-3 shrink-0 ${cls}`}>
-      <span className="font-bold text-sm tracking-wide">⚠ DEPREM UYARISI</span>
-      <span className="text-sm truncate">
-        M {formatMagnitude(alert.ml_magnitude)} —{' '}
-        {alert.region_name ?? `${alert.latitude.toFixed(2)}°N, ${alert.longitude.toFixed(2)}°E`}
-      </span>
-      <span className="ml-auto shrink-0 px-2 py-0.5 rounded text-xs font-bold border border-current">
-        {alert.alert_level}
-      </span>
-      <button
-        onClick={onDismiss}
-        className="text-current opacity-60 hover:opacity-100 shrink-0 font-mono"
-        aria-label="Kapat"
-      >
-        ✕
-      </button>
+    <div className="flex items-stretch shrink-0 border-b border-border bg-surface overflow-x-auto">
+      <StatTile
+        label="Son 24 Saat"
+        value={total24h.toLocaleString('tr-TR')}
+        sub={`Son 1 saatte: ${total1h}`}
+      />
+      <StatTile
+        label="En Yüksek Büyüklük"
+        value={maxMag24h > 0 ? `M ${formatMagnitude(maxMag24h)}` : '—'}
+        valueClass={maxMag24h > 0 ? maxInfo.textClass : 'text-text-muted'}
+        sub="Son 24 saat"
+      />
+      <StatTile
+        label="Ort. Sıklık"
+        value={`${rate24h.toFixed(1)}/sa`}
+        sub="24 saatlik oran"
+      />
+      <div className="flex flex-col justify-center px-5 py-2 min-w-[160px]">
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-text-muted leading-none">
+          Kalite Dağılımı
+        </span>
+        <div className="flex items-center gap-3 mt-1">
+          <div className="flex items-baseline gap-1">
+            <span className="text-base font-bold font-mono text-mag-green">{reviewed}</span>
+            <span className="text-[9px] text-text-muted">gözden geçirilmiş</span>
+          </div>
+          <span className="text-border text-xs">·</span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-base font-bold font-mono text-text-secondary">{automatic}</span>
+            <span className="text-[9px] text-text-muted">otomatik</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ── Section header ────────────────────────────────────────────────────────────
+// ── Featured earthquake card (strongest in last 24h) ─────────────────────────
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+const NETWORK_CHIP_STYLES: Record<string, string> = {
+  USGS: 'bg-blue-950/60 text-blue-400 border-blue-800/50',
+  EMSC: 'bg-purple-950/60 text-purple-400 border-purple-800/50',
+  AFAD: 'bg-teal-950/60 text-teal-400 border-teal-800/50',
+};
+
+function NetworkChip({ network }: { network: string }) {
+  const cls =
+    NETWORK_CHIP_STYLES[network.toUpperCase()] ??
+    'bg-surface-elevated text-text-muted border-border';
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-widest text-text-muted px-4 py-2 border-b border-border bg-surface shrink-0">
-      {children}
-    </h2>
+    <span className={`text-[9px] font-bold px-1.5 py-px rounded border tracking-widest ${cls}`}>
+      {network.toUpperCase()}
+    </span>
+  );
+}
+
+function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
+  const cutoff = Date.now() - 24 * 3_600_000;
+  const strongest = useMemo(() => {
+    const recent = events.filter(
+      (e) => new Date(e.event_time).getTime() > cutoff,
+    );
+    if (recent.length === 0) return null;
+    return recent.reduce((best, e) => {
+      const mag = e.ml_magnitude ?? e.magnitude;
+      const bestMag = best.ml_magnitude ?? best.magnitude;
+      return mag > bestMag ? e : best;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+
+  if (!strongest) return null;
+
+  const displayMag = strongest.ml_magnitude ?? strongest.magnitude;
+  const info = getMagnitudeInfo(displayMag);
+
+  return (
+    <div className="px-3 pt-2.5 pb-1 shrink-0">
+      <div className="text-[9px] font-semibold uppercase tracking-widest text-text-muted mb-1.5 px-0.5">
+        En Büyük Deprem (24 sa)
+      </div>
+      <Link
+        href={`/deprem/${encodeURIComponent(strongest.source_id)}`}
+        className={`block rounded border ${info.borderClass} ${info.bgClass} px-3 py-2.5 hover:brightness-110 transition-all`}
+      >
+        <div className="flex items-start gap-3">
+          {/* Large magnitude */}
+          <div className="shrink-0">
+            <div className={`text-3xl font-bold font-mono leading-none ${info.textClass}`}>
+              {formatMagnitude(displayMag)}
+            </div>
+            <div className={`text-[9px] uppercase tracking-widest mt-0.5 ${info.textClass} opacity-75`}>
+              {info.label}
+            </div>
+          </div>
+          {/* Details */}
+          <div className="flex-1 min-w-0">
+            <p
+              className="text-sm font-semibold text-text-primary leading-tight truncate"
+              title={strongest.region_name ?? strongest.source_id}
+            >
+              {strongest.region_name ?? strongest.source_id}
+            </p>
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              <span className="text-[10px] font-mono text-text-muted">
+                {formatRelativeTime(strongest.event_time)}
+              </span>
+              <NetworkChip network={strongest.source_network} />
+              {strongest.alert_level && (
+                <span className="text-[9px] font-bold text-mag-red tracking-widest">
+                  ⚠ {strongest.alert_level}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </Link>
+    </div>
+  );
+}
+
+// ── Right panel ───────────────────────────────────────────────────────────────
+
+const ALERT_LEVEL_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  RED:    { bg: 'bg-red-950/70',    text: 'text-mag-red',    border: 'border-mag-red/40' },
+  ORANGE: { bg: 'bg-orange-950/60', text: 'text-mag-orange', border: 'border-mag-orange/40' },
+  YELLOW: { bg: 'bg-yellow-950/40', text: 'text-mag-yellow', border: 'border-mag-yellow/40' },
+};
+
+function PanelSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border-b border-border last:border-0">
+      <div className="px-4 py-2 border-b border-border/50 bg-surface">
+        <h3 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
+          {title}
+        </h3>
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function RecentAlertsPanel({ alerts }: { alerts: AlertEvent[] }) {
+  if (alerts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-5 select-none opacity-50">
+        <div className="w-9 h-9 rounded-full bg-surface-elevated border border-border flex items-center justify-center">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="text-text-muted"
+          >
+            <path
+              d="M8 1.5L2 5v5c0 3.31 2.67 6.4 6 7.12 3.33-.72 6-3.81 6-7.12V5L8 1.5z"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M5.5 8l2 2 3-3"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+        <div className="text-center leading-snug">
+          <p className="text-xs font-medium text-text-muted">Uyarı yok</p>
+          <p className="text-[10px] text-text-muted mt-0.5">Eşik değeri aşılmadı</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="space-y-2">
+      {alerts.slice(0, 5).map((a) => {
+        const style =
+          ALERT_LEVEL_STYLES[a.alert_level] ?? ALERT_LEVEL_STYLES['YELLOW'];
+        return (
+          <li
+            key={`${a.source_id}-${a.triggered_at_ms}`}
+            className={`rounded border px-3 py-2 ${style.bg} ${style.border}`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-[9px] font-bold tracking-widest px-1 rounded border ${style.text} ${style.border}`}
+              >
+                {a.alert_level}
+              </span>
+              <span className={`text-sm font-bold font-mono ${style.text}`}>
+                M {formatMagnitude(a.ml_magnitude)}
+              </span>
+            </div>
+            <p className="text-xs text-text-secondary mt-1 truncate leading-tight">
+              {a.region_name ??
+                `${a.latitude.toFixed(2)}°N ${a.longitude.toFixed(2)}°E`}
+            </p>
+            <p className="text-[10px] text-text-muted mt-0.5">
+              {formatRelativeTime(new Date(a.triggered_at_ms).toISOString())}
+            </p>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function RightStatsPanel({
+  bands,
+  alerts,
+}: {
+  bands: BandStats[];
+  alerts: AlertEvent[];
+}) {
+  const { total24h, total1h, maxMag24h, rate24h } = derivedStats(bands);
+  const maxInfo = getMagnitudeInfo(maxMag24h);
+
+  return (
+    <div className="flex flex-col min-h-0 overflow-y-auto">
+      <PanelSection title="Gerçek Zamanlı İstatistikler">
+        <dl className="space-y-3">
+          <div className="flex justify-between items-baseline">
+            <dt className="text-xs text-text-muted">Son 1 saat</dt>
+            <dd className="text-sm font-mono font-bold text-text-primary">
+              {total1h} deprem
+            </dd>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <dt className="text-xs text-text-muted">Son 24 saat</dt>
+            <dd className="text-sm font-mono font-bold text-text-primary">
+              {total24h} deprem
+            </dd>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <dt className="text-xs text-text-muted">En yüksek büyüklük</dt>
+            <dd
+              className={`text-sm font-mono font-bold ${
+                maxMag24h > 0 ? maxInfo.textClass : 'text-text-muted'
+              }`}
+            >
+              {maxMag24h > 0 ? `M ${formatMagnitude(maxMag24h)}` : '—'}
+            </dd>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <dt className="text-xs text-text-muted">Ortalama sıklık</dt>
+            <dd className="text-sm font-mono font-bold text-text-secondary">
+              {rate24h.toFixed(1)} /sa
+            </dd>
+          </div>
+        </dl>
+      </PanelSection>
+
+      <PanelSection title="Büyüklük Dağılımı (24 sa)">
+        <MagnitudeChart bands={bands} />
+      </PanelSection>
+
+      <PanelSection title="Son Uyarılar">
+        <RecentAlertsPanel alerts={alerts} />
+      </PanelSection>
+    </div>
+  );
+}
+
+// ── Turkey filter toggle button ───────────────────────────────────────────────
+
+function TurkeyFilterToggle({
+  active,
+  onToggle,
+}: {
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      title={active ? 'Türkiye filtresi aktif — tümünü göster' : 'Türkiye sınırlarına filtrele'}
+      className={`
+        flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[10px] font-bold
+        tracking-widest border backdrop-blur-sm transition-all
+        ${
+          active
+            ? 'bg-accent/20 border-accent/60 text-accent shadow-[0_0_8px_rgba(59,130,246,0.2)]'
+            : 'bg-bg/80 border-border text-text-muted hover:text-text-secondary hover:border-border/80'
+        }
+      `}
+    >
+      {/* Simple map-pin icon */}
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <circle cx="5" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+        <path
+          d="M5 9C5 9 1.5 6 1.5 4a3.5 3.5 0 0 1 7 0C8.5 6 5 9 5 9z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+      </svg>
+      TÜRKİYE
+      {active && (
+        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+      )}
+    </button>
   );
 }
 
@@ -174,12 +435,17 @@ export function Dashboard() {
   const [events, setEvents]           = useState<DisplayEvent[]>([]);
   const [bands, setBands]             = useState<BandStats[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [activeAlert, setActiveAlert] = useState<AlertEvent | null>(null);
+  const [alerts, setAlerts]           = useState<AlertEvent[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [filterTurkey, setFilterTurkey] = useState(false);
 
-  const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Filtered events (Turkey bbox or all) ───────────────────────────────────
+  const filteredEvents = useMemo(
+    () => (filterTurkey ? events.filter(inTurkey) : events),
+    [events, filterTurkey],
+  );
 
-  // ── Initial data load ─────────────────────────────────────────────────────
+  // ── Initial REST load ─────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
       const [listResp, statsResp] = await Promise.all([
@@ -222,78 +488,107 @@ export function Dashboard() {
       setLastUpdated(new Date());
     } else if (lastMessage.type === 'alert') {
       const a = lastMessage as AlertEvent;
-      // Tag the matching event in the list with the alert level
       setEvents((prev) =>
         prev.map((e) =>
           e.source_id === a.source_id ? { ...e, alert_level: a.alert_level } : e,
         ),
       );
-      setActiveAlert(a);
-      if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
-      alertTimerRef.current = setTimeout(() => setActiveAlert(null), 60_000);
+      setAlerts((prev) => [a, ...prev].slice(0, MAX_ALERTS));
     }
   }, [lastMessage]);
 
-  useEffect(() => {
-    return () => {
-      if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
-    };
-  }, []);
+  const risk = riskFromBands(bands);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-screen overflow-hidden bg-bg">
+
+      {/* ── Top header bar ── */}
       <Header wsStatus={wsStatus} lastUpdated={lastUpdated} />
 
-      {/* Persistent seismic risk status */}
-      <RiskBanner bands={bands} />
+      {/* ── Statistics strip — always shows global (unfiltered) band stats ── */}
+      <TopStatsBar bands={bands} events={events} />
 
-      {/* Dismissible alert banner (fires on WebSocket alert events) */}
-      {activeAlert && (
-        <AlertBanner alert={activeAlert} onDismiss={() => setActiveAlert(null)} />
-      )}
+      {/* ── Three-column body ── */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
-      {/* ── Map — dominant, full width ─────────────────────────────────── */}
-      <main className="flex-1 min-h-0 relative">
-        {loading ? (
-          <div className="w-full h-full bg-surface flex items-center justify-center text-text-muted text-sm">
-            Yükleniyor…
-          </div>
-        ) : (
-          <EarthquakeMap events={events} />
-        )}
-      </main>
+        {/* ── Left sidebar ── */}
+        <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-r border-border bg-surface">
 
-      {/* ── Compact bottom panel ───────────────────────────────────────── */}
-      <div className="h-64 xl:h-72 shrink-0 border-t border-border flex flex-row overflow-hidden">
-        {/* Recent earthquake list */}
-        <div className="flex-[3] flex flex-col min-h-0 border-r border-border">
-          <SectionTitle>
-            Son Depremler
-            {events.length > 0 && (
-              <span className="ml-2 text-text-muted font-normal normal-case tracking-normal">
-                ({events.length})
+          {/* Sidebar header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse"
+                style={{ backgroundColor: risk.color }}
+              />
+              <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
+                Son Depremler
+              </h2>
+              <span
+                className="text-[9px] font-bold uppercase tracking-widest"
+                style={{ color: risk.color }}
+              >
+                {risk.label}
               </span>
-            )}
-          </SectionTitle>
-          <div className="overflow-y-auto flex-1">
-            <EarthquakeList events={events.slice(0, 50)} />
+            </div>
+            <span className="text-[9px] font-mono text-text-muted">
+              {filterTurkey
+                ? `${filteredEvents.length} / ${events.length}`
+                : events.length > 0
+                  ? events.length
+                  : ''}
+            </span>
           </div>
-        </div>
 
-        {/* Magnitude distribution chart */}
-        <div className="flex-[2] flex flex-col min-h-0">
-          <SectionTitle>Büyüklük Dağılımı (24 sa)</SectionTitle>
-          <div className="p-4 overflow-auto flex-1">
-            {bands.length > 0 ? (
-              <MagnitudeChart bands={bands} />
-            ) : (
-              <div className="text-text-muted text-sm">
-                {loading ? 'Yükleniyor…' : 'Veri yok'}
-              </div>
-            )}
+          {/* Featured strongest earthquake card */}
+          <FeaturedEarthquakeCard events={filteredEvents} />
+
+          {/* Divider between featured and list */}
+          {filteredEvents.some(
+            (e) => new Date(e.event_time).getTime() > Date.now() - 24 * 3_600_000,
+          ) && (
+            <div className="mx-3 border-t border-border/40 shrink-0" />
+          )}
+
+          {/* Scrollable event list */}
+          <div className="overflow-y-auto flex-1 overscroll-contain">
+            <EarthquakeList events={filteredEvents.slice(0, 50)} />
           </div>
-        </div>
+
+        </aside>
+
+        {/* ── Center: dominant map ── */}
+        <main className="flex-1 min-h-0 min-w-0 relative">
+
+          {/* Turkey filter toggle — overlaid top-left of map */}
+          <div className="absolute top-3 left-3 z-10">
+            <TurkeyFilterToggle
+              active={filterTurkey}
+              onToggle={() => setFilterTurkey((f) => !f)}
+            />
+          </div>
+
+          {loading ? (
+            <div className="w-full h-full bg-surface flex items-center justify-center text-text-muted text-sm">
+              Yükleniyor…
+            </div>
+          ) : (
+            <EarthquakeMap events={filteredEvents} />
+          )}
+        </main>
+
+        {/* ── Right panel: stats + chart + alerts ── */}
+        <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-l border-border bg-surface">
+          {bands.length === 0 ? (
+            <div className="flex items-center justify-center flex-1 text-text-muted text-sm">
+              Yükleniyor…
+            </div>
+          ) : (
+            <RightStatsPanel bands={bands} alerts={alerts} />
+          )}
+        </aside>
+
       </div>
     </div>
   );

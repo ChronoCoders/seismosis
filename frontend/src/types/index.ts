@@ -99,6 +99,7 @@ export type WsMessage = ConnectedMessage | EnrichedEvent | AlertEvent;
 
 export interface DisplayEvent {
   source_id: string;
+  source_network: string;
   magnitude: number;
   /** ML-refined magnitude from the analysis service (WebSocket only). */
   ml_magnitude?: number;
@@ -107,6 +108,7 @@ export interface DisplayEvent {
   event_time: string;       // ISO 8601
   region_name?: string;
   depth_km?: number;
+  quality_indicator: string;
   /** True when this record arrived via WebSocket (not from REST API history). */
   is_live: boolean;
   // Enrichment fields — only populated for live WebSocket events
@@ -120,12 +122,14 @@ export interface DisplayEvent {
 export function apiEventToDisplay(e: EarthquakeEvent): DisplayEvent {
   return {
     source_id: e.source_id,
+    source_network: e.source_network,
     magnitude: e.magnitude,
     latitude: e.latitude,
     longitude: e.longitude,
     event_time: e.event_time,
     region_name: e.region_name ?? undefined,
     depth_km: e.depth_km ?? undefined,
+    quality_indicator: e.quality_indicator,
     is_live: false,
   };
 }
@@ -133,6 +137,7 @@ export function apiEventToDisplay(e: EarthquakeEvent): DisplayEvent {
 export function enrichedToDisplay(e: EnrichedEvent): DisplayEvent {
   return {
     source_id: e.source_id,
+    source_network: e.source_network,
     magnitude: e.magnitude,
     ml_magnitude: e.ml_magnitude,
     latitude: e.latitude,
@@ -140,6 +145,7 @@ export function enrichedToDisplay(e: EnrichedEvent): DisplayEvent {
     event_time: new Date(e.event_time_ms).toISOString(),
     region_name: e.region_name ?? undefined,
     depth_km: e.depth_km ?? undefined,
+    quality_indicator: e.quality_indicator,
     is_live: true,
     is_aftershock: e.is_aftershock,
     mainshock_source_id: e.mainshock_source_id,
