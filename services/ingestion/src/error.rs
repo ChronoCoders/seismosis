@@ -10,6 +10,9 @@ pub enum IngestError {
         inner: reqwest::Error,
     },
 
+    #[error("empty response body from source '{src}'")]
+    EmptyResponse { src: &'static str },
+
     #[error("JSON deserialisation error from source '{src}' (event '{event_id}'): {inner}")]
     JsonParse {
         src: &'static str,

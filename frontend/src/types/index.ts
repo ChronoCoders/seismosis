@@ -100,13 +100,21 @@ export type WsMessage = ConnectedMessage | EnrichedEvent | AlertEvent;
 export interface DisplayEvent {
   source_id: string;
   magnitude: number;
+  /** ML-refined magnitude from the analysis service (WebSocket only). */
+  ml_magnitude?: number;
   latitude: number;
   longitude: number;
   event_time: string;       // ISO 8601
   region_name?: string;
   depth_km?: number;
-  /** True when this record arrived via WebSocket (not from REST API history) */
+  /** True when this record arrived via WebSocket (not from REST API history). */
   is_live: boolean;
+  // Enrichment fields — only populated for live WebSocket events
+  alert_level?: string;                  // "YELLOW" | "ORANGE" | "RED"
+  is_aftershock?: boolean;
+  mainshock_source_id?: string | null;
+  mainshock_magnitude?: number | null;
+  estimated_felt_radius_km?: number;
 }
 
 export function apiEventToDisplay(e: EarthquakeEvent): DisplayEvent {
@@ -125,12 +133,17 @@ export function apiEventToDisplay(e: EarthquakeEvent): DisplayEvent {
 export function enrichedToDisplay(e: EnrichedEvent): DisplayEvent {
   return {
     source_id: e.source_id,
-    magnitude: e.ml_magnitude,
+    magnitude: e.magnitude,
+    ml_magnitude: e.ml_magnitude,
     latitude: e.latitude,
     longitude: e.longitude,
     event_time: new Date(e.event_time_ms).toISOString(),
     region_name: e.region_name ?? undefined,
     depth_km: e.depth_km ?? undefined,
     is_live: true,
+    is_aftershock: e.is_aftershock,
+    mainshock_source_id: e.mainshock_source_id,
+    mainshock_magnitude: e.mainshock_magnitude,
+    estimated_felt_radius_km: e.estimated_felt_radius_km,
   };
 }

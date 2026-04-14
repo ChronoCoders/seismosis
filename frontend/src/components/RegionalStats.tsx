@@ -8,10 +8,11 @@ interface RegionalStatsProps {
 }
 
 const BAND_LABELS: Record<string, string> = {
-  'M1-3': 'M 1–3',
-  'M3-5': 'M 3–5',
-  'M5-7': 'M 5–7',
-  'M7+': 'M 7+',
+  'minor':    'M < 2',
+  'light':    'M 2–4',
+  'moderate': 'M 4–6',
+  'strong':   'M 6–8',
+  'major':    'M 8+',
 };
 
 function StatCell({ value, label }: { value: number; label: string }) {

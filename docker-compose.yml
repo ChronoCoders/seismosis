@@ -87,7 +87,7 @@ services:
       - --smp
       - "2"
       - --memory
-      - "1G"
+      - "896M"
       - --reserve-memory
       - "0M"
       - --overprovisioned

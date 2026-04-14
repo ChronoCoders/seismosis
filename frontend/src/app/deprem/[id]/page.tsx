@@ -5,23 +5,23 @@ import type { Metadata } from 'next';
 import { fetchEvent } from '@/lib/api';
 import { MagnitudeBadge } from '@/components/MagnitudeBadge';
 import { getMagnitudeInfo, formatDateTime, formatDepth } from '@/lib/magnitude';
-import type { DisplayEvent } from '@/types';
 
 interface Props {
   params: { id: string };
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const event = await fetchEvent(params.id).catch(() => null);
+  const sourceId = decodeURIComponent(params.id);
+  const event = await fetchEvent(sourceId).catch(() => null);
   if (!event) return { title: 'Deprem Bulunamadı — Seismosis' };
   return {
-    title: `M ${event.magnitude.toFixed(1)} — ${event.region_name ?? params.id} | Seismosis`,
+    title: `M ${event.magnitude.toFixed(1)} — ${event.region_name ?? sourceId} | Seismosis`,
   };
 }
 
 // ─── Mini map (client-only) ───────────────────────────────────────────────────
 
-const DetailMap = dynamic(() => import('@/components/MapInner'), {
+const DetailMap = dynamic(() => import('@/components/EpicenterMap'), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full bg-surface flex items-center justify-center text-text-muted text-sm">
@@ -46,21 +46,11 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DepremDetayPage({ params }: Props) {
-  const event = await fetchEvent(params.id).catch(() => null);
+  const sourceId = decodeURIComponent(params.id);
+  const event = await fetchEvent(sourceId).catch(() => null);
   if (!event) notFound();
 
   const info = getMagnitudeInfo(event.magnitude);
-
-  const mapEvent: DisplayEvent = {
-    source_id: event.source_id,
-    magnitude: event.magnitude,
-    latitude: event.latitude,
-    longitude: event.longitude,
-    event_time: event.event_time,
-    region_name: event.region_name ?? undefined,
-    depth_km: event.depth_km ?? undefined,
-    is_live: false,
-  };
 
   return (
     <div className="min-h-screen bg-bg">
@@ -138,7 +128,11 @@ export default async function DepremDetayPage({ params }: Props) {
 
           {/* ── Mini map ── */}
           <div className="rounded border border-border overflow-hidden min-h-[280px] md:min-h-0">
-            <DetailMap events={[mapEvent]} />
+            <DetailMap
+              latitude={event.latitude}
+              longitude={event.longitude}
+              magnitude={event.magnitude}
+            />
           </div>
         </div>
 

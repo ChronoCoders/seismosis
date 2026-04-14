@@ -118,6 +118,10 @@ impl EmscSource {
             inner: e,
         })?;
 
+        if body.is_empty() {
+            return Err(IngestError::EmptyResponse { src: SOURCE_NAME });
+        }
+
         let collection: FeatureCollection =
             serde_json::from_slice(&body).map_err(|e| IngestError::JsonParse {
                 src: SOURCE_NAME,
