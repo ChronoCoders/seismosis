@@ -66,6 +66,7 @@ export function EarthquakeList({ events }: EarthquakeListProps) {
           <li key={event.source_id} className="border-b border-border/50 last:border-0">
             <Link
               href={`/deprem/${encodeURIComponent(event.source_id)}`}
+              prefetch={false}
               className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-elevated transition-colors"
             >
               {/* Magnitude badge */}

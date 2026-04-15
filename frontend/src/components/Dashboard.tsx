@@ -202,6 +202,7 @@ function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
       </div>
       <Link
         href={`/deprem/${encodeURIComponent(strongest.source_id)}`}
+        prefetch={false}
         className={`block rounded border ${info.borderClass} ${info.bgClass} px-3 py-2.5 hover:brightness-110 transition-all`}
       >
         <div className="flex items-start gap-3">

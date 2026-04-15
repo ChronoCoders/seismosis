@@ -151,6 +151,7 @@ function EventTable({
                 <td className="px-4 py-2 max-w-[220px]">
                   <Link
                     href={`/deprem/${encodeURIComponent(event.source_id)}`}
+                    prefetch={false}
                     className="text-text-primary hover:text-accent truncate block transition-colors"
                     title={event.region_name ?? event.source_id}
                   >
