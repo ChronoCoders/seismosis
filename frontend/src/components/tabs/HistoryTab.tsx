@@ -66,7 +66,7 @@ function TrendChart({
         {buckets.map((count, i) => (
           <div
             key={i}
-            className="flex-1 flex items-end"
+            className="flex-1 flex items-end h-full"
             title={`${labels[i]}: ${count}`}
           >
             <div
