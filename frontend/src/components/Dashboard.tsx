@@ -15,6 +15,9 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { Header } from '@/components/Header';
 import { EarthquakeList } from '@/components/EarthquakeList';
 import { MagnitudeChart } from '@/components/RegionalStats';
+import RealtimeTab from '@/components/tabs/RealtimeTab';
+import HistoryTab from '@/components/tabs/HistoryTab';
+import CompareTab from '@/components/tabs/CompareTab';
 import {
   getMagnitudeInfo,
   formatMagnitude,
@@ -428,9 +431,47 @@ function TurkeyFilterToggle({
   );
 }
 
+// ── Tab navigation ────────────────────────────────────────────────────────────
+
+type TabId = 'overview' | 'realtime' | 'history' | 'compare';
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'overview',  label: 'Genel Bakış'    },
+  { id: 'realtime',  label: 'Gerçek Zamanlı' },
+  { id: 'history',   label: 'Geçmiş'         },
+  { id: 'compare',   label: 'Karşılaştırma'  },
+];
+
+function TabBar({
+  active,
+  onChange,
+}: {
+  active: TabId;
+  onChange: (id: TabId) => void;
+}) {
+  return (
+    <div className="flex items-end gap-0 border-b border-border bg-surface shrink-0 px-4">
+      {TABS.map((tab) => (
+        <button
+          key={tab.id}
+          onClick={() => onChange(tab.id)}
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${
+            active === tab.id
+              ? 'border-accent text-text-primary'
+              : 'border-transparent text-text-muted hover:text-text-secondary'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
+  const [activeTab, setActiveTab]     = useState<TabId>('overview');
   const [events, setEvents]           = useState<DisplayEvent[]>([]);
   const [bands, setBands]             = useState<BandStats[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -505,90 +546,111 @@ export function Dashboard() {
       {/* ── Top header bar ── */}
       <Header wsStatus={wsStatus} lastUpdated={lastUpdated} />
 
-      {/* ── Statistics strip — always shows global (unfiltered) band stats ── */}
-      <TopStatsBar bands={bands} events={events} />
+      {/* ── Tab navigation bar ── */}
+      <TabBar active={activeTab} onChange={setActiveTab} />
 
-      {/* ── Three-column body ── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* ── Tab content ── */}
+      {activeTab === 'realtime' && (
+        <RealtimeTab events={events} wsStatus={wsStatus} />
+      )}
 
-        {/* ── Left sidebar ── */}
-        <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-r border-border bg-surface">
+      {activeTab === 'history' && (
+        <HistoryTab />
+      )}
 
-          {/* Sidebar header */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
-            <div className="flex items-center gap-2">
-              <span
-                className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse"
-                style={{ backgroundColor: risk.color }}
-              />
-              <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
-                Son Depremler
-              </h2>
-              <span
-                className="text-[9px] font-bold uppercase tracking-widest"
-                style={{ color: risk.color }}
-              >
-                {risk.label}
-              </span>
-            </div>
-            <span className="text-[9px] font-mono text-text-muted">
-              {filterTurkey
-                ? `${filteredEvents.length} / ${events.length}`
-                : events.length > 0
-                  ? events.length
-                  : ''}
-            </span>
+      {activeTab === 'compare' && (
+        <CompareTab />
+      )}
+
+      {activeTab === 'overview' && (
+        <>
+          {/* ── Statistics strip — always shows global (unfiltered) band stats ── */}
+          <TopStatsBar bands={bands} events={events} />
+
+          {/* ── Three-column body ── */}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+
+            {/* ── Left sidebar ── */}
+            <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-r border-border bg-surface">
+
+              {/* Sidebar header */}
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse"
+                    style={{ backgroundColor: risk.color }}
+                  />
+                  <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
+                    Son Depremler
+                  </h2>
+                  <span
+                    className="text-[9px] font-bold uppercase tracking-widest"
+                    style={{ color: risk.color }}
+                  >
+                    {risk.label}
+                  </span>
+                </div>
+                <span className="text-[9px] font-mono text-text-muted">
+                  {filterTurkey
+                    ? `${filteredEvents.length} / ${events.length}`
+                    : events.length > 0
+                      ? events.length
+                      : ''}
+                </span>
+              </div>
+
+              {/* Featured strongest earthquake card */}
+              <FeaturedEarthquakeCard events={filteredEvents} />
+
+              {/* Divider between featured and list */}
+              {filteredEvents.some(
+                (e) => new Date(e.event_time).getTime() > Date.now() - 24 * 3_600_000,
+              ) && (
+                <div className="mx-3 border-t border-border/40 shrink-0" />
+              )}
+
+              {/* Scrollable event list */}
+              <div className="overflow-y-auto flex-1 overscroll-contain">
+                <EarthquakeList events={filteredEvents.slice(0, 50)} />
+              </div>
+
+            </aside>
+
+            {/* ── Center: dominant map ── */}
+            <main className="flex-1 min-h-0 min-w-0 relative">
+
+              {/* Turkey filter toggle — overlaid top-left of map */}
+              <div className="absolute top-3 left-3 z-10">
+                <TurkeyFilterToggle
+                  active={filterTurkey}
+                  onToggle={() => setFilterTurkey((f) => !f)}
+                />
+              </div>
+
+              {loading ? (
+                <div className="w-full h-full bg-surface flex items-center justify-center text-text-muted text-sm">
+                  Yükleniyor…
+                </div>
+              ) : (
+                <EarthquakeMap events={filteredEvents} />
+              )}
+            </main>
+
+            {/* ── Right panel: stats + chart + alerts ── */}
+            <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-l border-border bg-surface">
+              {bands.length === 0 ? (
+                <div className="flex items-center justify-center flex-1 text-text-muted text-sm">
+                  Yükleniyor…
+                </div>
+              ) : (
+                <RightStatsPanel bands={bands} alerts={alerts} />
+              )}
+            </aside>
+
           </div>
+        </>
+      )}
 
-          {/* Featured strongest earthquake card */}
-          <FeaturedEarthquakeCard events={filteredEvents} />
-
-          {/* Divider between featured and list */}
-          {filteredEvents.some(
-            (e) => new Date(e.event_time).getTime() > Date.now() - 24 * 3_600_000,
-          ) && (
-            <div className="mx-3 border-t border-border/40 shrink-0" />
-          )}
-
-          {/* Scrollable event list */}
-          <div className="overflow-y-auto flex-1 overscroll-contain">
-            <EarthquakeList events={filteredEvents.slice(0, 50)} />
-          </div>
-
-        </aside>
-
-        {/* ── Center: dominant map ── */}
-        <main className="flex-1 min-h-0 min-w-0 relative">
-
-          {/* Turkey filter toggle — overlaid top-left of map */}
-          <div className="absolute top-3 left-3 z-10">
-            <TurkeyFilterToggle
-              active={filterTurkey}
-              onToggle={() => setFilterTurkey((f) => !f)}
-            />
-          </div>
-
-          {loading ? (
-            <div className="w-full h-full bg-surface flex items-center justify-center text-text-muted text-sm">
-              Yükleniyor…
-            </div>
-          ) : (
-            <EarthquakeMap events={filteredEvents} />
-          )}
-        </main>
-
-        {/* ── Right panel: stats + chart + alerts ── */}
-        <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-l border-border bg-surface">
-          {bands.length === 0 ? (
-            <div className="flex items-center justify-center flex-1 text-text-muted text-sm">
-              Yükleniyor…
-            </div>
-          ) : (
-            <RightStatsPanel bands={bands} alerts={alerts} />
-          )}
-        </aside>
-
-      </div>
     </div>
   );
 }
