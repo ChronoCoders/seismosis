@@ -1,10 +1,8 @@
 use utoipa::OpenApi;
 
-use crate::model::{
-    BandStats, EventListResponse, EventResponse, EventsQuery, StatsResponse,
-};
-use crate::routes::{events, health, stats};
+use crate::model::{BandStats, EventListResponse, EventResponse, EventsQuery, StatsResponse};
 use crate::routes::health::{DependencyStatus, HealthResponse};
+use crate::routes::{events, health, stats};
 
 /// OpenAPI 3.1 specification for the Seismosis REST API.
 ///

@@ -59,9 +59,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Prometheus metrics ────────────────────────────────────────────────────
     let prom_registry = prometheus::Registry::new();
-    let metrics = Arc::new(
-        Metrics::new(&prom_registry).map_err(|e| anyhow::anyhow!("metrics: {}", e))?,
-    );
+    let metrics =
+        Arc::new(Metrics::new(&prom_registry).map_err(|e| anyhow::anyhow!("metrics: {}", e))?);
     let prom_registry = Arc::new(prom_registry);
 
     // ── Application state ─────────────────────────────────────────────────────

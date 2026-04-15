@@ -51,11 +51,14 @@ impl DlqProducer {
             // DLQ volume is low; disable linger to deliver promptly.
             .set("linger.ms", "0")
             .create()
-            .map_err(|e| StorageError::KafkaSetup(format!(
-                "DLQ producer creation failed: {}", e
-            )))?;
+            .map_err(|e| {
+                StorageError::KafkaSetup(format!("DLQ producer creation failed: {}", e))
+            })?;
 
-        Ok(Self { inner: producer, topic })
+        Ok(Self {
+            inner: producer,
+            topic,
+        })
     }
 
     /// Route a failed message to the dead-letter topic.

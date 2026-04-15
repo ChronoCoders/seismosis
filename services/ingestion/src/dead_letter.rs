@@ -53,7 +53,10 @@ impl DlqProducer {
             .set("linger.ms", "0")
             .create()?;
 
-        Ok(Self { inner: producer, topic })
+        Ok(Self {
+            inner: producer,
+            topic,
+        })
     }
 
     /// Route a rejected event to the dead-letter topic.

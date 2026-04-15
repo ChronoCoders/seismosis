@@ -85,7 +85,7 @@ pub struct AlertEvent {
 /// close its connection; it is never serialised.
 #[derive(Debug, Clone)]
 pub enum ServerMessage {
-    Earthquake(EnrichedEvent),
+    Earthquake(Box<EnrichedEvent>),
     Alert(AlertEvent),
     /// Internal-only: instructs the per-client task to send a Close frame.
     Close,

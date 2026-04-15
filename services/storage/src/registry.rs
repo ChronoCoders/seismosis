@@ -121,12 +121,14 @@ impl SchemaRegistryClient {
                 }
             },
             |err: &ProcessError| {
-                if let ProcessError::SchemaRegistry { http_status, .. } = err {
-                    // 4xx = client error (unknown schema ID, misconfigured URL).
-                    // These are permanent and will not resolve on retry.
-                    if let Some(s) = http_status {
-                        return !(*s >= 400 && *s < 500);
-                    }
+                // 4xx = client error (unknown schema ID, misconfigured URL).
+                // These are permanent and will not resolve on retry.
+                if let ProcessError::SchemaRegistry {
+                    http_status: Some(s),
+                    ..
+                } = err
+                {
+                    return !(*s >= 400 && *s < 500);
                 }
                 true // network errors (http_status = None) and 5xx are retryable
             },

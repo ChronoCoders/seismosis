@@ -77,7 +77,11 @@ pub async fn handle_connection(
     );
 
     // Classify the remote address coarsely for the counter label.
-    let addr_class = if addr.ip().is_loopback() { "internal" } else { "external" };
+    let addr_class = if addr.ip().is_loopback() {
+        "internal"
+    } else {
+        "external"
+    };
     metrics
         .connections_accepted_total
         .with_label_values(&[addr_class])

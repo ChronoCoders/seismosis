@@ -39,29 +39,26 @@ impl Config {
         Ok(Self {
             kafka_brokers: var_str("KAFKA_BROKERS", "redpanda:9092"),
             kafka_topic_raw: var_str("KAFKA_TOPIC_RAW", "earthquakes.raw"),
-            kafka_topic_dead_letter: var_str(
-                "KAFKA_TOPIC_DEAD_LETTER",
-                "earthquakes.dead-letter",
-            ),
+            kafka_topic_dead_letter: var_str("KAFKA_TOPIC_DEAD_LETTER", "earthquakes.dead-letter"),
             kafka_group_id: var_str("KAFKA_GROUP_ID", "seismosis-storage-group"),
             schema_registry_url: var_str("SCHEMA_REGISTRY_URL", "http://redpanda:8081"),
             database_url: var_str(
                 "DATABASE_URL",
                 "postgres://seismosis:changeme@postgres:5432/seismosis",
             ),
-            db_max_connections: u32::try_from(var_u64("DB_MAX_CONNECTIONS", 10)?)
-                .map_err(|_| StorageError::Config {
+            db_max_connections: u32::try_from(var_u64("DB_MAX_CONNECTIONS", 10)?).map_err(
+                |_| StorageError::Config {
                     field: "DB_MAX_CONNECTIONS",
                     detail: "value exceeds u32::MAX (4294967295)".to_owned(),
-                })?,
-            db_connect_timeout: Duration::from_secs(
-                var_u64("DB_CONNECT_TIMEOUT_SECS", 30)?,
-            ),
-            metrics_port: u16::try_from(var_u64("METRICS_PORT", 9090)?)
-                .map_err(|_| StorageError::Config {
+                },
+            )?,
+            db_connect_timeout: Duration::from_secs(var_u64("DB_CONNECT_TIMEOUT_SECS", 30)?),
+            metrics_port: u16::try_from(var_u64("METRICS_PORT", 9090)?).map_err(|_| {
+                StorageError::Config {
                     field: "METRICS_PORT",
                     detail: "value exceeds u16::MAX (65535)".to_owned(),
-                })?,
+                }
+            })?,
         })
     }
 }

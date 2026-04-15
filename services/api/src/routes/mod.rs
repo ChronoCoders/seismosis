@@ -3,7 +3,10 @@ pub mod health;
 pub mod metrics_handler;
 pub mod stats;
 
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     error_handling::HandleErrorLayer,
@@ -60,10 +63,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/stats", get(stats::get_stats))
         // NOTE: /metrics is on the public port in Phase 1 — see module doc.
         .route("/metrics", get(metrics_handler::metrics))
-        .merge(
-            SwaggerUi::new("/docs")
-                .url("/docs/openapi.json", ApiDoc::openapi()),
-        )
+        .merge(SwaggerUi::new("/docs").url("/docs/openapi.json", ApiDoc::openapi()))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, track_metrics))
         .layer(
@@ -82,11 +82,7 @@ pub fn build_router(state: AppState) -> Router {
 /// The matched path template (e.g. `/v1/events/:id`) is extracted from
 /// `MatchedPath` so label cardinality is bounded regardless of path
 /// parameters. Falls back to `"unknown"` for unmatched routes (404s).
-async fn track_metrics(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
+async fn track_metrics(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let method = req.method().to_string();
     let path = req
         .extensions()

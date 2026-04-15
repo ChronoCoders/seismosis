@@ -85,7 +85,8 @@ fn var_f64(name: &'static str, default: f64) -> anyhow::Result<f64> {
             if !f.is_finite() {
                 return Err(anyhow::anyhow!(
                     "config {}: '{}' is not a finite number",
-                    name, v
+                    name,
+                    v
                 ));
             }
             Ok(f)

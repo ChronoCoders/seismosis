@@ -21,11 +21,11 @@ use serde::Deserialize;
 use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use tracing::{debug, warn};
 
+use super::SeismicSource;
 use crate::config::Config;
 use crate::error::{IngestError, ParseError};
 use crate::schema::RawEarthquakeEvent;
 use crate::sources::{normalise_mag_type, usgs_quality, validate_coordinates};
-use super::SeismicSource;
 
 const SOURCE_NAME: &str = "USGS";
 
@@ -98,7 +98,10 @@ impl UsgsSource {
             .get(&url)
             .send()
             .await
-            .map_err(|e| IngestError::HttpFetch { src: SOURCE_NAME, inner: e })?;
+            .map_err(|e| IngestError::HttpFetch {
+                src: SOURCE_NAME,
+                inner: e,
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -127,11 +130,7 @@ impl UsgsSource {
         let mut events = Vec::with_capacity(api_count);
 
         for feature in collection.features {
-            match parse_feature(
-                feature,
-                ingested_at_ms,
-                &self.config.pipeline_version,
-            ) {
+            match parse_feature(feature, ingested_at_ms, &self.config.pipeline_version) {
                 Ok(event) => events.push(event),
                 Err(e) => {
                     warn!(error = %e, source = SOURCE_NAME, "Skipping unparseable event");
@@ -199,15 +198,14 @@ fn parse_feature(
             event_id: event_id.clone(),
         })?;
 
-    let event_time_ms =
-        feature
-            .properties
-            .time
-            .ok_or_else(|| ParseError::MissingField {
-                field: "time",
-                src: SOURCE_NAME,
-                event_id: event_id.clone(),
-            })?;
+    let event_time_ms = feature
+        .properties
+        .time
+        .ok_or_else(|| ParseError::MissingField {
+            field: "time",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+        })?;
 
     // geometry.coordinates = [lon, lat, depth_km]
     let coords = &feature.geometry.coordinates;
@@ -225,13 +223,8 @@ fn parse_feature(
 
     validate_coordinates(latitude, longitude, SOURCE_NAME, &event_id)?;
 
-    let magnitude_type = normalise_mag_type(
-        feature
-            .properties
-            .mag_type
-            .as_deref()
-            .unwrap_or("UNKNOWN"),
-    );
+    let magnitude_type =
+        normalise_mag_type(feature.properties.mag_type.as_deref().unwrap_or("UNKNOWN"));
 
     let quality_indicator = usgs_quality(feature.properties.status.as_deref()).to_owned();
     let source_id = format!("USGS:{}", event_id);

@@ -1,6 +1,4 @@
-use prometheus::{
-    CounterVec, HistogramOpts, HistogramVec, Opts, Registry,
-};
+use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts, Registry};
 use std::sync::Arc;
 
 /// All Prometheus metrics for the ingestion service.
@@ -97,7 +95,9 @@ impl Metrics {
                 "seismosis_ingestion_publish_duration_seconds",
                 "Kafka publish call duration including broker acknowledgment",
             )
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]),
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0
+            ]),
             &["topic"],
         )?);
 

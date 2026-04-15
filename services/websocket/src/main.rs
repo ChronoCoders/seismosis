@@ -77,7 +77,11 @@ async fn main() -> anyhow::Result<()> {
         ws_port = config.ws_port,
         metrics_port = config.metrics_port,
         kafka_brokers = config.kafka_brokers.as_str(),
-        topics = format!("{}, {}", config.kafka_topic_enriched, config.kafka_topic_alerts).as_str(),
+        topics = format!(
+            "{}, {}",
+            config.kafka_topic_enriched, config.kafka_topic_alerts
+        )
+        .as_str(),
         group_id = config.kafka_group_id.as_str(),
         "Seismosis WebSocket service starting",
     );

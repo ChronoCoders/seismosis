@@ -13,10 +13,10 @@
 //! schema — so this cache is correct without expiry.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 
-use apache_avro::{Schema, types::Value};
+use apache_avro::{types::Value, Schema};
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::debug;

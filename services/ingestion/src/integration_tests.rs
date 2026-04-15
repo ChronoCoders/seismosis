@@ -46,6 +46,7 @@ mod tests {
         Config {
             kafka_brokers: kafka_brokers.to_owned(),
             kafka_topic_raw: topic.to_owned(),
+            kafka_topic_dead_letter: "earthquakes.dead-letter".to_owned(),
             // Use acks=1 in tests: we have a single broker and don't need
             // full ISR acknowledgment to verify produce correctness.
             kafka_producer_acks: "1".to_owned(),
@@ -60,6 +61,7 @@ mod tests {
             metrics_port: 0,
             usgs_api_url: "https://example.com".to_owned(),
             emsc_api_url: "https://example.com".to_owned(),
+            afad_api_url: "https://example.com".to_owned(),
             http_timeout: Duration::from_secs(10),
             http_max_retries: 1,
             pipeline_version: "integration-test".to_owned(),
@@ -73,6 +75,7 @@ mod tests {
         Config {
             kafka_brokers: "127.0.0.1:19099".to_owned(),
             kafka_topic_raw: "non-existent-topic".to_owned(),
+            kafka_topic_dead_letter: "earthquakes.dead-letter".to_owned(),
             kafka_producer_acks: "1".to_owned(),
             kafka_max_retries: 0,
             kafka_message_timeout_ms: 1_000, // fail fast — broker is unreachable
@@ -85,6 +88,7 @@ mod tests {
             metrics_port: 0,
             usgs_api_url: "https://example.com".to_owned(),
             emsc_api_url: "https://example.com".to_owned(),
+            afad_api_url: "https://example.com".to_owned(),
             http_timeout: Duration::from_secs(10),
             http_max_retries: 1,
             pipeline_version: "integration-test".to_owned(),
@@ -104,8 +108,7 @@ mod tests {
             .expect("Failed to create Kafka admin client");
 
         let new_topic = NewTopic::new(topic, 1, TopicReplication::Fixed(1));
-        let opts = AdminOptions::new()
-            .operation_timeout(Some(Duration::from_secs(15)));
+        let opts = AdminOptions::new().operation_timeout(Some(Duration::from_secs(15)));
 
         let results = admin
             .create_topics(&[new_topic], &opts)
@@ -124,7 +127,10 @@ mod tests {
     /// Exercises the full check-then-mark sequence documented on `Deduplicator`.
     #[tokio::test]
     async fn dedup_redis_protocol() {
-        let redis = Redis.start().await.expect("Failed to start Redis container");
+        let redis = Redis::default()
+            .start()
+            .await
+            .expect("Failed to start Redis container");
         let port = redis
             .get_host_port_ipv4(6379)
             .await
@@ -132,7 +138,10 @@ mod tests {
         let redis_url = format!("redis://127.0.0.1:{}", port);
 
         let dedup = Deduplicator::new(&redis_url, 60).await;
-        assert!(dedup.is_redis_healthy(), "Redis should be reachable after container start");
+        assert!(
+            dedup.is_redis_healthy(),
+            "Redis should be reachable after container start"
+        );
 
         // A fresh key is not a duplicate.
         assert!(!dedup.is_duplicate("USGS:int_dedup_001").await);
@@ -162,7 +171,7 @@ mod tests {
             .expect("Failed to get Kafka bootstrap port");
         let brokers = format!("127.0.0.1:{}", kafka_port);
 
-        let redis = Redis
+        let redis = Redis::default()
             .start()
             .await
             .expect("Failed to start Redis container");
@@ -218,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn produce_failure_does_not_commit_dedup_key() {
         // Use a non-existent broker so every produce attempt fails.
-        let redis = Redis
+        let redis = Redis::default()
             .start()
             .await
             .expect("Failed to start Redis container");

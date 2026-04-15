@@ -119,10 +119,7 @@ impl RawFields {
         if !matches!(self.quality_indicator.as_str(), "A" | "B" | "C" | "D") {
             return Err(ProcessError::Validation {
                 field: "quality_indicator",
-                detail: format!(
-                    "'{}' is not one of A, B, C, D",
-                    self.quality_indicator
-                ),
+                detail: format!("'{}' is not one of A, B, C, D", self.quality_indicator),
             });
         }
 
@@ -131,11 +128,10 @@ impl RawFields {
             field: "event_time_ms",
             detail: format!("{} overflows DateTime<Utc>", self.event_time_ms),
         })?;
-        let processed_at =
-            ms_to_datetime(self.ingested_at_ms).ok_or(ProcessError::Validation {
-                field: "ingested_at_ms",
-                detail: format!("{} overflows DateTime<Utc>", self.ingested_at_ms),
-            })?;
+        let processed_at = ms_to_datetime(self.ingested_at_ms).ok_or(ProcessError::Validation {
+            field: "ingested_at_ms",
+            detail: format!("{} overflows DateTime<Utc>", self.ingested_at_ms),
+        })?;
 
         // raw_payload must be parseable JSON (column type is JSONB).
         let raw_payload: serde_json::Value = serde_json::from_str(&self.raw_payload)

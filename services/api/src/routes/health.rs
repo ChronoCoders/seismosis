@@ -32,16 +32,17 @@ pub struct DependencyStatus {
     )
 )]
 pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
-    let postgres_ok = sqlx::query("SELECT 1")
-        .execute(&state.pool)
-        .await
-        .is_ok();
+    let postgres_ok = sqlx::query("SELECT 1").execute(&state.pool).await.is_ok();
 
     let redis_ok = state.cache.ping().await;
 
     let postgres = if postgres_ok { "ok" } else { "unreachable" };
     let redis = if redis_ok { "ok" } else { "unreachable" };
-    let status = if postgres_ok && redis_ok { "ok" } else { "degraded" };
+    let status = if postgres_ok && redis_ok {
+        "ok"
+    } else {
+        "degraded"
+    };
 
     (
         StatusCode::OK,

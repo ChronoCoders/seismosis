@@ -4,11 +4,7 @@ use std::io::Cursor;
 use apache_avro::{from_avro_datum, types::Value};
 use tracing::debug;
 
-use crate::{
-    error::ProcessError,
-    model::RawFields,
-    registry::SchemaRegistryClient,
-};
+use crate::{error::ProcessError, model::RawFields, registry::SchemaRegistryClient};
 
 /// Size of the Confluent wire format header: 1 magic byte + 4 schema-ID bytes.
 const WIRE_HEADER_LEN: usize = 5;
@@ -106,21 +102,24 @@ fn take_string(
             "field '{}': expected String, got {:?}",
             field, other
         ))),
-        None => Err(ProcessError::AvroDecode(format!("field '{}' missing", field))),
+        None => Err(ProcessError::AvroDecode(format!(
+            "field '{}' missing",
+            field
+        ))),
     }
 }
 
-fn take_double(
-    map: &mut HashMap<String, Value>,
-    field: &'static str,
-) -> Result<f64, ProcessError> {
+fn take_double(map: &mut HashMap<String, Value>, field: &'static str) -> Result<f64, ProcessError> {
     match map.remove(field) {
         Some(Value::Double(d)) => Ok(d),
         Some(other) => Err(ProcessError::AvroDecode(format!(
             "field '{}': expected Double, got {:?}",
             field, other
         ))),
-        None => Err(ProcessError::AvroDecode(format!("field '{}' missing", field))),
+        None => Err(ProcessError::AvroDecode(format!(
+            "field '{}' missing",
+            field
+        ))),
     }
 }
 
@@ -137,7 +136,10 @@ fn take_timestamp_ms(
             "field '{}': expected TimestampMillis or Long, got {:?}",
             field, other
         ))),
-        None => Err(ProcessError::AvroDecode(format!("field '{}' missing", field))),
+        None => Err(ProcessError::AvroDecode(format!(
+            "field '{}' missing",
+            field
+        ))),
     }
 }
 

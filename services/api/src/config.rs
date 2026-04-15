@@ -34,18 +34,14 @@ impl Config {
             db_max_connections: {
                 let v = var_u64("DB_MAX_CONNECTIONS", 20)?;
                 u32::try_from(v).map_err(|_| {
-                    ApiError::Config(format!(
-                        "DB_MAX_CONNECTIONS value {} overflows u32",
-                        v
-                    ))
+                    ApiError::Config(format!("DB_MAX_CONNECTIONS value {} overflows u32", v))
                 })?
             },
             redis_url: var_str("REDIS_URL", "redis://redis:6379")?,
             http_port: {
                 let v = var_u64("HTTP_PORT", 8000)?;
-                u16::try_from(v).map_err(|_| {
-                    ApiError::Config(format!("HTTP_PORT value {} overflows u16", v))
-                })?
+                u16::try_from(v)
+                    .map_err(|_| ApiError::Config(format!("HTTP_PORT value {} overflows u16", v)))?
             },
             request_timeout_secs: var_u64("REQUEST_TIMEOUT_SECS", 30)?,
             event_cache_ttl_secs: var_u64("EVENT_CACHE_TTL_SECS", 300)?,

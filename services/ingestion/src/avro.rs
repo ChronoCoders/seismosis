@@ -39,8 +39,7 @@ impl AvroEncoder {
         let avro_value = event_to_avro(event);
 
         // to_avro_datum produces raw Avro binary without any container header.
-        let datum =
-            to_avro_datum(&self.schema, avro_value).map_err(IngestError::AvroCoding)?;
+        let datum = to_avro_datum(&self.schema, avro_value).map_err(IngestError::AvroCoding)?;
 
         let mut buf = Vec::with_capacity(5 + datum.len());
         buf.extend_from_slice(&self.header);
@@ -54,18 +53,39 @@ impl AvroEncoder {
 fn event_to_avro(e: &RawEarthquakeEvent) -> Value {
     Value::Record(vec![
         ("source_id".into(), Value::String(e.source_id.clone())),
-        ("source_network".into(), Value::String(e.source_network.clone())),
-        ("event_time_ms".into(), Value::TimestampMillis(e.event_time_ms)),
+        (
+            "source_network".into(),
+            Value::String(e.source_network.clone()),
+        ),
+        (
+            "event_time_ms".into(),
+            Value::TimestampMillis(e.event_time_ms),
+        ),
         ("latitude".into(), Value::Double(e.latitude)),
         ("longitude".into(), Value::Double(e.longitude)),
         ("depth_km".into(), nullable_double(e.depth_km)),
         ("magnitude".into(), Value::Double(e.magnitude)),
-        ("magnitude_type".into(), Value::String(e.magnitude_type.clone())),
-        ("region_name".into(), nullable_string(e.region_name.as_deref())),
-        ("quality_indicator".into(), Value::String(e.quality_indicator.clone())),
+        (
+            "magnitude_type".into(),
+            Value::String(e.magnitude_type.clone()),
+        ),
+        (
+            "region_name".into(),
+            nullable_string(e.region_name.as_deref()),
+        ),
+        (
+            "quality_indicator".into(),
+            Value::String(e.quality_indicator.clone()),
+        ),
         ("raw_payload".into(), Value::String(e.raw_payload.clone())),
-        ("ingested_at_ms".into(), Value::TimestampMillis(e.ingested_at_ms)),
-        ("pipeline_version".into(), Value::String(e.pipeline_version.clone())),
+        (
+            "ingested_at_ms".into(),
+            Value::TimestampMillis(e.ingested_at_ms),
+        ),
+        (
+            "pipeline_version".into(),
+            Value::String(e.pipeline_version.clone()),
+        ),
     ])
 }
 
@@ -119,9 +139,8 @@ mod tests {
 
     fn decode_record(encoded: &[u8], schema: &Schema) -> HashMap<String, Value> {
         // Skip the 5-byte Confluent wire header before decoding.
-        let datum = &encoded[5..];
-        let decoded = from_avro_datum(schema, &mut datum.as_ref(), None)
-            .expect("Avro decoding failed");
+        let mut datum = &encoded[5..];
+        let decoded = from_avro_datum(schema, &mut datum, None).expect("Avro decoding failed");
         if let Value::Record(fields) = decoded {
             fields.into_iter().collect()
         } else {
@@ -144,7 +163,11 @@ mod tests {
         let schema = Schema::parse_str(AVRO_SCHEMA).unwrap();
         let encoder = AvroEncoder::new(schema, 42);
         let bytes = encoder.encode(&test_event()).unwrap();
-        assert_eq!(&bytes[1..5], &42u32.to_be_bytes(), "Schema ID must be 4-byte big-endian");
+        assert_eq!(
+            &bytes[1..5],
+            &42u32.to_be_bytes(),
+            "Schema ID must be 4-byte big-endian"
+        );
     }
 
     #[test]
@@ -160,7 +183,10 @@ mod tests {
         let schema = Schema::parse_str(AVRO_SCHEMA).unwrap();
         let encoder = AvroEncoder::new(schema, 1);
         let bytes = encoder.encode(&test_event()).unwrap();
-        assert!(bytes.len() > 5, "Encoded output must contain data beyond the 5-byte header");
+        assert!(
+            bytes.len() > 5,
+            "Encoded output must contain data beyond the 5-byte header"
+        );
     }
 
     // ── event_to_avro round-trip ──────────────────────────────────────────
@@ -191,8 +217,14 @@ mod tests {
         assert_eq!(fields["latitude"], Value::Double(37.5));
         assert_eq!(fields["longitude"], Value::Double(-122.1));
         assert_eq!(fields["magnitude"], Value::Double(4.5));
-        assert_eq!(fields["event_time_ms"], Value::TimestampMillis(1_700_000_000_000));
-        assert_eq!(fields["ingested_at_ms"], Value::TimestampMillis(1_700_000_001_000));
+        assert_eq!(
+            fields["event_time_ms"],
+            Value::TimestampMillis(1_700_000_000_000)
+        );
+        assert_eq!(
+            fields["ingested_at_ms"],
+            Value::TimestampMillis(1_700_000_001_000)
+        );
     }
 
     #[test]

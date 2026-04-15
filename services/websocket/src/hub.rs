@@ -95,7 +95,7 @@ impl Hub {
     /// The event is heap-allocated once and shared across all matching clients
     /// via `Arc` clones — no per-client copies of the event data are made.
     pub async fn broadcast_enriched(&self, event: EnrichedEvent) {
-        let msg = Arc::new(ServerMessage::Earthquake(event));
+        let msg = Arc::new(ServerMessage::Earthquake(Box::new(event)));
         // Extract the inner event reference before the read lock so the loop
         // body can call matches_enriched directly without a per-iteration
         // `if let` on the known variant.

@@ -9,10 +9,10 @@
 //! Key field shapes (verified against live API 2026-04-12):
 //! - `eventID`       → String  — AFAD numeric identifier (e.g. "713106")
 //! - `date`          → String  — ISO-8601 UTC without timezone suffix
-//!                               (e.g. "2026-04-11T00:19:09"). Treat as UTC.
+//!   (e.g. "2026-04-11T00:19:09"). Treat as UTC.
 //! - `magnitude`     → String  — decimal magnitude (e.g. "1.3")
 //! - `type`          → String  — magnitude scale (e.g. "ML", "Mw"). Note: this
-//!                               is the magnitude type, NOT an event classification.
+//!   is the magnitude type, NOT an event classification.
 //! - `latitude`      → String  — decimal degrees (e.g. "37.90472")
 //! - `longitude`     → String  — decimal degrees (e.g. "36.45944")
 //! - `depth`         → String  — depth in km, positive downward (e.g. "6.94")
@@ -33,12 +33,12 @@ use serde::Deserialize;
 use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use tracing::{debug, warn};
 
+use super::SeismicSource;
 use crate::config::Config;
 use crate::error::{IngestError, ParseError};
 use crate::metrics::Metrics;
 use crate::schema::RawEarthquakeEvent;
 use crate::sources::{afad_quality, normalise_mag_type, validate_coordinates};
-use super::SeismicSource;
 
 const SOURCE_NAME: &str = "AFAD";
 
@@ -83,7 +83,11 @@ pub struct AfadSource {
 
 impl AfadSource {
     pub fn new(client: reqwest::Client, config: Arc<Config>, metrics: Arc<Metrics>) -> Self {
-        Self { client, config, metrics }
+        Self {
+            client,
+            config,
+            metrics,
+        }
     }
 
     async fn fetch_once(
@@ -109,13 +113,19 @@ impl AfadSource {
             .get(&url)
             .send()
             .await
-            .map_err(|e| IngestError::HttpFetch { src: SOURCE_NAME, inner: e })?;
+            .map_err(|e| IngestError::HttpFetch {
+                src: SOURCE_NAME,
+                inner: e,
+            })?;
 
         // error_for_status() consumes `response` and returns Ok(response) for
         // 2xx and Err(reqwest::Error) for non-2xx — no unwrap/expect needed.
         let response = response
             .error_for_status()
-            .map_err(|e| IngestError::HttpFetch { src: SOURCE_NAME, inner: e })?;
+            .map_err(|e| IngestError::HttpFetch {
+                src: SOURCE_NAME,
+                inner: e,
+            })?;
 
         let body = response.bytes().await.map_err(|e| IngestError::HttpFetch {
             src: SOURCE_NAME,
@@ -184,18 +194,24 @@ fn parse_event(
     ingested_at_ms: i64,
     pipeline_version: &str,
 ) -> Result<RawEarthquakeEvent, ParseError> {
-    let event_id = raw.event_id.clone().ok_or_else(|| ParseError::MissingField {
-        field: "eventID",
-        src: SOURCE_NAME,
-        event_id: "(unknown)".into(),
-    })?;
+    let event_id = raw
+        .event_id
+        .clone()
+        .ok_or_else(|| ParseError::MissingField {
+            field: "eventID",
+            src: SOURCE_NAME,
+            event_id: "(unknown)".into(),
+        })?;
 
     // ── date ─────────────────────────────────────────────────────────────────
-    let date_str = raw.date.as_deref().ok_or_else(|| ParseError::MissingField {
-        field: "date",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-    })?;
+    let date_str = raw
+        .date
+        .as_deref()
+        .ok_or_else(|| ParseError::MissingField {
+            field: "date",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+        })?;
     let event_time_ms = parse_afad_date(date_str).map_err(|detail| ParseError::InvalidField {
         field: "date",
         src: SOURCE_NAME,
@@ -204,42 +220,60 @@ fn parse_event(
     })?;
 
     // ── magnitude ─────────────────────────────────────────────────────────────
-    let mag_str = raw.magnitude.as_deref().ok_or_else(|| ParseError::MissingField {
-        field: "magnitude",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-    })?;
-    let magnitude = mag_str.trim().parse::<f64>().map_err(|_| ParseError::InvalidField {
-        field: "magnitude",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-        detail: format!("cannot parse '{}' as f64", mag_str),
-    })?;
+    let mag_str = raw
+        .magnitude
+        .as_deref()
+        .ok_or_else(|| ParseError::MissingField {
+            field: "magnitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+        })?;
+    let magnitude = mag_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| ParseError::InvalidField {
+            field: "magnitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+            detail: format!("cannot parse '{}' as f64", mag_str),
+        })?;
 
     // ── coordinates ──────────────────────────────────────────────────────────
-    let lat_str = raw.latitude.as_deref().ok_or_else(|| ParseError::MissingField {
-        field: "latitude",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-    })?;
-    let latitude = lat_str.trim().parse::<f64>().map_err(|_| ParseError::InvalidField {
-        field: "latitude",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-        detail: format!("cannot parse '{}' as f64", lat_str),
-    })?;
+    let lat_str = raw
+        .latitude
+        .as_deref()
+        .ok_or_else(|| ParseError::MissingField {
+            field: "latitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+        })?;
+    let latitude = lat_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| ParseError::InvalidField {
+            field: "latitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+            detail: format!("cannot parse '{}' as f64", lat_str),
+        })?;
 
-    let lon_str = raw.longitude.as_deref().ok_or_else(|| ParseError::MissingField {
-        field: "longitude",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-    })?;
-    let longitude = lon_str.trim().parse::<f64>().map_err(|_| ParseError::InvalidField {
-        field: "longitude",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-        detail: format!("cannot parse '{}' as f64", lon_str),
-    })?;
+    let lon_str = raw
+        .longitude
+        .as_deref()
+        .ok_or_else(|| ParseError::MissingField {
+            field: "longitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+        })?;
+    let longitude = lon_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| ParseError::InvalidField {
+            field: "longitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+            detail: format!("cannot parse '{}' as f64", lon_str),
+        })?;
 
     validate_coordinates(latitude, longitude, SOURCE_NAME, &event_id)?;
 
@@ -268,9 +302,7 @@ fn parse_event(
     // ── magnitude type ────────────────────────────────────────────────────────
     // The `type` field in the AFAD v2 API is the magnitude scale, not an event
     // classification. There is no review-status field in this API version.
-    let magnitude_type = normalise_mag_type(
-        raw.magnitude_type_raw.as_deref().unwrap_or("UNKNOWN"),
-    );
+    let magnitude_type = normalise_mag_type(raw.magnitude_type_raw.as_deref().unwrap_or("UNKNOWN"));
 
     let quality_indicator = afad_quality(raw.is_event_update).to_owned();
     let source_id = format!("AFAD:{}", event_id);
@@ -317,15 +349,20 @@ fn parse_afad_date(s: &str) -> Result<i64, String> {
     let s = s.trim();
 
     // Accept with or without trailing Z.
-    let naive = if s.ends_with('Z') {
-        NaiveDateTime::parse_from_str(&s[..s.len() - 1], "%Y-%m-%dT%H:%M:%S")
+    let naive = if let Some(stripped) = s.strip_suffix('Z') {
+        NaiveDateTime::parse_from_str(stripped, "%Y-%m-%dT%H:%M:%S")
     } else {
         NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
     };
 
     naive
         .map(|ndt| ndt.and_utc().timestamp_millis())
-        .map_err(|e| format!("'{}' does not match AFAD date format YYYY-MM-DDTHH:MM:SS: {}", s, e))
+        .map_err(|e| {
+            format!(
+                "'{}' does not match AFAD date format YYYY-MM-DDTHH:MM:SS: {}",
+                s, e
+            )
+        })
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -501,8 +538,17 @@ mod tests {
         let event = parse_event(valid_raw(), 0, "0.1.0").unwrap();
         let payload: serde_json::Value = serde_json::from_str(&event.raw_payload).unwrap();
         // Magnitude must be stored as the original string, not a parsed float.
-        assert_eq!(payload["magnitude"], serde_json::Value::String("3.2".into()));
-        assert_eq!(payload["latitude"], serde_json::Value::String("37.90472".into()));
-        assert_eq!(payload["date"], serde_json::Value::String("2026-04-11T00:19:09".into()));
+        assert_eq!(
+            payload["magnitude"],
+            serde_json::Value::String("3.2".into())
+        );
+        assert_eq!(
+            payload["latitude"],
+            serde_json::Value::String("37.90472".into())
+        );
+        assert_eq!(
+            payload["date"],
+            serde_json::Value::String("2026-04-11T00:19:09".into())
+        );
     }
 }

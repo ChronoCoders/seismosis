@@ -51,7 +51,9 @@ impl SchemaRegistryClient {
         schema_json: &str,
     ) -> Result<u32, IngestError> {
         let url = format!("{}/subjects/{}/versions", self.base_url, subject);
-        let body = RegisterRequest { schema: schema_json };
+        let body = RegisterRequest {
+            schema: schema_json,
+        };
 
         let strategy = ExponentialBackoff::from_millis(2_000)
             .factor(2)
@@ -89,10 +91,13 @@ impl SchemaRegistryClient {
 
                 if status.is_success() {
                     let reg: RegisterResponse =
-                        response.json().await.map_err(|e| IngestError::SchemaRegistry {
-                            url: url.clone(),
-                            detail: format!("response parse failed: {}", e),
-                        })?;
+                        response
+                            .json()
+                            .await
+                            .map_err(|e| IngestError::SchemaRegistry {
+                                url: url.clone(),
+                                detail: format!("response parse failed: {}", e),
+                            })?;
 
                     debug!(schema_id = reg.id, subject, "Schema registered/found");
                     Ok(reg.id)
@@ -100,8 +105,8 @@ impl SchemaRegistryClient {
                     // Read the raw body first so we can log it if JSON parsing
                     // fails (e.g. an nginx 502 HTML page instead of SR JSON).
                     let body_bytes = response.bytes().await.unwrap_or_default();
-                    let err: SrErrorBody = serde_json::from_slice(&body_bytes)
-                        .unwrap_or_else(|_| {
+                    let err: SrErrorBody =
+                        serde_json::from_slice(&body_bytes).unwrap_or_else(|_| {
                             warn!(
                                 url = %url,
                                 raw_body = %String::from_utf8_lossy(&body_bytes),
@@ -114,7 +119,10 @@ impl SchemaRegistryClient {
                         status, err.error_code, err.message
                     );
                     warn!(url = %url, %detail, "Schema Registry returned error");
-                    Err(IngestError::SchemaRegistry { url: url.clone(), detail })
+                    Err(IngestError::SchemaRegistry {
+                        url: url.clone(),
+                        detail,
+                    })
                 }
             },
             |err: &IngestError| {

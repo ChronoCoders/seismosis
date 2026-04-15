@@ -26,10 +26,10 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
     for (name, val) in [
         ("min_magnitude", query.min_magnitude),
         ("max_magnitude", query.max_magnitude),
-        ("min_lat",       query.min_lat),
-        ("max_lat",       query.max_lat),
-        ("min_lon",       query.min_lon),
-        ("max_lon",       query.max_lon),
+        ("min_lat", query.min_lat),
+        ("max_lat", query.max_lat),
+        ("min_lon", query.min_lon),
+        ("max_lon", query.max_lon),
     ] {
         if let Some(v) = val {
             if !v.is_finite() {
@@ -72,12 +72,9 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
         .iter()
         .any(|v| v.is_some());
 
-    if let (Some(min_lat), Some(max_lat), Some(min_lon), Some(max_lon)) = (
-        query.min_lat,
-        query.max_lat,
-        query.min_lon,
-        query.max_lon,
-    ) {
+    if let (Some(min_lat), Some(max_lat), Some(min_lon), Some(max_lon)) =
+        (query.min_lat, query.max_lat, query.min_lon, query.max_lon)
+    {
         // All four corners are present — validate ranges and ordering.
 
         // ── Individual coordinate ranges ──────────────────────────────────────
@@ -115,10 +112,7 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
         if min_lat >= max_lat {
             return Err(RequestError::BadParam {
                 param: "min_lat",
-                detail: format!(
-                    "{} must be strictly less than max_lat {}",
-                    min_lat, max_lat
-                ),
+                detail: format!("{} must be strictly less than max_lat {}", min_lat, max_lat),
             });
         }
         if min_lon >= max_lon {
@@ -238,9 +232,9 @@ pub async fn get_event(
     let cache = state.cache.clone();
     let ttl = state.config.event_cache_ttl_secs;
     let to_cache = event.clone();
-    let _ = tokio::spawn(async move {
+    drop(tokio::spawn(async move {
         cache.set(&cache_key, &to_cache, ttl).await;
-    }); // intentional drop: cache failure is non-fatal, logged by Cache::set
+    })); // intentional drop: cache failure is non-fatal, logged by Cache::set
 
     Ok(Json(event))
 }
@@ -276,7 +270,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_magnitude", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_magnitude",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -286,7 +286,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "max_magnitude", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "max_magnitude",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -299,7 +305,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_lat", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_lat",
+                ..
+            }
+        ));
     }
 
     // ── Magnitude ordering ────────────────────────────────────────────────────
@@ -312,7 +324,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_magnitude", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_magnitude",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -336,7 +354,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "start_time", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "start_time",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -387,7 +411,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_lat", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_lat",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -400,7 +430,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_lat", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_lat",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -413,7 +449,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_lon", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_lon",
+                ..
+            }
+        ));
     }
 
     // ── Out-of-range coordinates ──────────────────────────────────────────────
@@ -428,7 +470,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_lat", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_lat",
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -441,7 +489,13 @@ mod tests {
             ..q()
         })
         .unwrap_err();
-        assert!(matches!(err, RequestError::BadParam { param: "min_lon", .. }));
+        assert!(matches!(
+            err,
+            RequestError::BadParam {
+                param: "min_lon",
+                ..
+            }
+        ));
     }
 
     // ── Empty query passes ────────────────────────────────────────────────────
@@ -463,12 +517,8 @@ mod tests {
             max in -2.0f64..=10.0f64,
         ) {
             let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
-            prop_assert!(validate_events_query(&EventsQuery {
-                min_magnitude: Some(lo),
-                max_magnitude: Some(hi),
-                ..q()
-            })
-            .is_ok());
+            let query = EventsQuery { min_magnitude: Some(lo), max_magnitude: Some(hi), ..q() };
+            prop_assert!(validate_events_query(&query).is_ok());
         }
 
         /// Any non-finite magnitude value must be rejected.
@@ -476,11 +526,8 @@ mod tests {
         fn non_finite_magnitude_always_rejected(bits in any::<u64>()) {
             let v = f64::from_bits(bits);
             if !v.is_finite() {
-                prop_assert!(validate_events_query(&EventsQuery {
-                    min_magnitude: Some(v),
-                    ..q()
-                })
-                .is_err());
+                let query = EventsQuery { min_magnitude: Some(v), ..q() };
+                prop_assert!(validate_events_query(&query).is_err());
             }
         }
 
@@ -496,14 +543,14 @@ mod tests {
             let (min_lat, max_lat) = if lat1 < lat2 { (lat1, lat2) } else { (lat2, lat1) };
             let (min_lon, max_lon) = if lon1 < lon2 { (lon1, lon2) } else { (lon2, lon1) };
             if min_lat < max_lat && min_lon < max_lon {
-                prop_assert!(validate_events_query(&EventsQuery {
+                let query = EventsQuery {
                     min_lat: Some(min_lat),
                     max_lat: Some(max_lat),
                     min_lon: Some(min_lon),
                     max_lon: Some(max_lon),
                     ..q()
-                })
-                .is_ok());
+                };
+                prop_assert!(validate_events_query(&query).is_ok());
             }
         }
 
@@ -511,27 +558,27 @@ mod tests {
         #[test]
         fn out_of_range_lat_always_rejected(lat in 90.001f64..=1000.0f64) {
             // Use a valid lon range so only the lat triggers the error.
-            prop_assert!(validate_events_query(&EventsQuery {
+            let query = EventsQuery {
                 min_lat: Some(lat),
                 max_lat: Some(lat + 1.0),
                 min_lon: Some(-10.0),
                 max_lon: Some(10.0),
                 ..q()
-            })
-            .is_err());
+            };
+            prop_assert!(validate_events_query(&query).is_err());
         }
 
         /// Longitudes outside [-180, 180] must always be rejected.
         #[test]
         fn out_of_range_lon_always_rejected(lon in 180.001f64..=1000.0f64) {
-            prop_assert!(validate_events_query(&EventsQuery {
+            let query = EventsQuery {
                 min_lat: Some(-10.0),
                 max_lat: Some(10.0),
                 min_lon: Some(lon),
                 max_lon: Some(lon + 1.0),
                 ..q()
-            })
-            .is_err());
+            };
+            prop_assert!(validate_events_query(&query).is_err());
         }
     }
 }

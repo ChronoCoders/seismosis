@@ -36,7 +36,10 @@ impl EventProducer {
             .set("batch.size", "65536")
             // Overall delivery timeout. A message that cannot be delivered
             // within this window is returned as an error.
-            .set("message.timeout.ms", &config.kafka_message_timeout_ms.to_string())
+            .set(
+                "message.timeout.ms",
+                config.kafka_message_timeout_ms.to_string(),
+            )
             // rdkafka retries — separate from our application-level retries.
             .set("retries", "5")
             .set("retry.backoff.ms", "250")
@@ -83,10 +86,7 @@ impl EventProducer {
 
                 // Queue timeout: wait up to 5 s for space in the producer
                 // internal queue before returning an error.
-                let result = self
-                    .inner
-                    .send(record, Duration::from_secs(5))
-                    .await;
+                let result = self.inner.send(record, Duration::from_secs(5)).await;
 
                 let elapsed = start.elapsed().as_secs_f64();
                 metrics

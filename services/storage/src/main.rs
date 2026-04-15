@@ -1,10 +1,14 @@
-use std::{net::SocketAddr, sync::Arc, time::{Duration, Instant}};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{routing::get, Router};
 use prometheus::{Encoder, Registry, TextEncoder};
 use rdkafka::{
-    consumer::{CommitMode, Consumer, StreamConsumer},
     config::ClientConfig,
+    consumer::{CommitMode, Consumer, StreamConsumer},
     message::Message,
 };
 use tokio::sync::watch;
@@ -55,9 +59,8 @@ async fn main() -> anyhow::Result<()> {
     info!("Database pool established");
 
     // ── Schema Registry + Avro decoder ───────────────────────────────────────
-    let registry_client =
-        SchemaRegistryClient::new(config.schema_registry_url.clone())
-            .map_err(|e| anyhow::anyhow!("schema registry: {}", e))?;
+    let registry_client = SchemaRegistryClient::new(config.schema_registry_url.clone())
+        .map_err(|e| anyhow::anyhow!("schema registry: {}", e))?;
     // Wrap in Arc so a future parallel-consumer refactor can share the decoder
     // without unsafe code. The schema cache inside is already Arc<RwLock<…>>,
     // so the only cost today is one extra heap allocation.
@@ -65,13 +68,15 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Prometheus metrics ────────────────────────────────────────────────────
     let prom_registry = Registry::new();
-    let metrics = Arc::new(
-        Metrics::new(&prom_registry).map_err(|e| anyhow::anyhow!("metrics: {}", e))?,
-    );
+    let metrics =
+        Arc::new(Metrics::new(&prom_registry).map_err(|e| anyhow::anyhow!("metrics: {}", e))?);
 
     // ── DLQ producer ──────────────────────────────────────────────────────────
-    let dlq = DlqProducer::new(&config.kafka_brokers, config.kafka_topic_dead_letter.clone())
-        .map_err(|e| anyhow::anyhow!("dlq producer: {}", e))?;
+    let dlq = DlqProducer::new(
+        &config.kafka_brokers,
+        config.kafka_topic_dead_letter.clone(),
+    )
+    .map_err(|e| anyhow::anyhow!("dlq producer: {}", e))?;
 
     // ── Kafka consumer ────────────────────────────────────────────────────────
     let consumer: StreamConsumer = ClientConfig::new()
@@ -186,7 +191,10 @@ async fn consume_loop(
         let payload = match msg.payload() {
             Some(p) => p,
             None => {
-                warn!(partition, offset, "Received message with null payload — skipping");
+                warn!(
+                    partition,
+                    offset, "Received message with null payload — skipping"
+                );
                 if let Err(e) = consumer.commit_message(&msg, CommitMode::Async) {
                     warn!(error = %e, partition, offset, "Offset commit failed");
                 }
@@ -225,9 +233,7 @@ async fn consume_loop(
             Err(err) => {
                 // For wire/decode failures we have no decoded key; fall back to
                 // the raw Kafka message key set by the ingestion producer.
-                let source_id = msg
-                    .key()
-                    .and_then(|k| std::str::from_utf8(k).ok());
+                let source_id = msg.key().and_then(|k| std::str::from_utf8(k).ok());
 
                 metrics
                     .events_dead_letter_total
@@ -254,8 +260,7 @@ async fn consume_loop(
                         // message will be reprocessed on the next startup.
                         warn!(
                             partition,
-                            offset,
-                            "DLQ delivery failed — offset not committed"
+                            offset, "DLQ delivery failed — offset not committed"
                         );
                         false
                     }
@@ -295,11 +300,7 @@ async fn process_message(
 
 // ─── Metrics HTTP server ──────────────────────────────────────────────────────
 
-async fn run_metrics_server(
-    registry: Registry,
-    port: u16,
-    mut shutdown: watch::Receiver<bool>,
-) {
+async fn run_metrics_server(registry: Registry, port: u16, mut shutdown: watch::Receiver<bool>) {
     let registry = Arc::new(registry);
 
     let app = Router::new().route(

@@ -100,19 +100,19 @@ pub async fn upsert_event(
             pipeline_version  = EXCLUDED.pipeline_version
         WHERE EXCLUDED.event_time > seismic_events.event_time
         "#,
-        event.source_id,                       // $1  TEXT
-        event.source_network,                  // $2  TEXT
-        event.event_time,                      // $3  TIMESTAMPTZ
-        event.magnitude as f64,                // $4  → ::float8 → NUMERIC(4,2)
-        event.magnitude_type,                  // $5  TEXT
-        event.longitude as f64,                // $6  → X (longitude) in ST_MakePoint($6, $7)
-        event.latitude  as f64,                // $7  → Y (latitude)  in ST_MakePoint($6, $7)
-        event.depth_km as Option<f64>,         // $8  → ::float8 → NUMERIC(8,3) nullable
-        event.region_name.clone() as Option<String>,   // $9  TEXT nullable
-        event.quality_indicator,               // $10 CHAR(1)
-        event.raw_payload,                     // $11 JSONB
-        event.processed_at,                    // $12 TIMESTAMPTZ
-        event.pipeline_version,                // $13 TEXT
+        event.source_id,                             // $1  TEXT
+        event.source_network,                        // $2  TEXT
+        event.event_time,                            // $3  TIMESTAMPTZ
+        event.magnitude as f64,                      // $4  → ::float8 → NUMERIC(4,2)
+        event.magnitude_type,                        // $5  TEXT
+        event.longitude as f64,                      // $6  → X (longitude) in ST_MakePoint($6, $7)
+        event.latitude as f64,                       // $7  → Y (latitude)  in ST_MakePoint($6, $7)
+        event.depth_km as Option<f64>,               // $8  → ::float8 → NUMERIC(8,3) nullable
+        event.region_name.clone() as Option<String>, // $9  TEXT nullable
+        event.quality_indicator,                     // $10 CHAR(1)
+        event.raw_payload,                           // $11 JSONB
+        event.processed_at,                          // $12 TIMESTAMPTZ
+        event.pipeline_version,                      // $13 TEXT
     )
     .execute(pool)
     .await

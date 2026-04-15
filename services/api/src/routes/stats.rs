@@ -2,12 +2,7 @@ use axum::{extract::State, Json};
 use chrono::Utc;
 use tracing::debug;
 
-use crate::{
-    cache,
-    error::RequestError,
-    model::StatsResponse,
-    routes::AppState,
-};
+use crate::{cache, error::RequestError, model::StatsResponse, routes::AppState};
 
 /// Return aggregate seismic statistics grouped by magnitude band and time window.
 ///
@@ -34,9 +29,7 @@ use crate::{
         (status = 200, description = "Aggregate statistics", body = StatsResponse),
     )
 )]
-pub async fn get_stats(
-    State(state): State<AppState>,
-) -> Result<Json<StatsResponse>, RequestError> {
+pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsResponse>, RequestError> {
     // Cache hit.
     if let Some(cached) = state.cache.get::<StatsResponse>(cache::STATS_KEY).await {
         state
@@ -69,9 +62,9 @@ pub async fn get_stats(
     let cache = state.cache.clone();
     let ttl = state.config.stats_cache_ttl_secs;
     let to_cache = response.clone();
-    let _ = tokio::spawn(async move {
+    drop(tokio::spawn(async move {
         cache.set(cache::STATS_KEY, &to_cache, ttl).await;
-    }); // intentional drop: cache failure is non-fatal, logged by Cache::set
+    })); // intentional drop: cache failure is non-fatal, logged by Cache::set
 
     Ok(Json(response))
 }

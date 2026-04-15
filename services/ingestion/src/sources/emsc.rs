@@ -26,11 +26,11 @@ use serde::Deserialize;
 use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use tracing::{debug, warn};
 
+use super::SeismicSource;
 use crate::config::Config;
 use crate::error::{IngestError, ParseError};
 use crate::schema::RawEarthquakeEvent;
 use crate::sources::{emsc_quality, normalise_mag_type, validate_coordinates};
-use super::SeismicSource;
 
 const SOURCE_NAME: &str = "EMSC";
 
@@ -101,7 +101,10 @@ impl EmscSource {
             .get(&url)
             .send()
             .await
-            .map_err(|e| IngestError::HttpFetch { src: SOURCE_NAME, inner: e })?;
+            .map_err(|e| IngestError::HttpFetch {
+                src: SOURCE_NAME,
+                inner: e,
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -189,20 +192,21 @@ fn parse_feature(
         event_id: event_id.clone(),
     })?;
 
-    let time_str = props.time.as_deref().ok_or_else(|| ParseError::MissingField {
-        field: "time",
-        src: SOURCE_NAME,
-        event_id: event_id.clone(),
-    })?;
-
-    // EMSC uses ISO-8601 with fractional seconds (e.g. "2024-01-01T05:22:54.5Z").
-    let event_time_ms = parse_iso8601_ms(time_str).map_err(|detail| {
-        ParseError::InvalidField {
+    let time_str = props
+        .time
+        .as_deref()
+        .ok_or_else(|| ParseError::MissingField {
             field: "time",
             src: SOURCE_NAME,
             event_id: event_id.clone(),
-            detail,
-        }
+        })?;
+
+    // EMSC uses ISO-8601 with fractional seconds (e.g. "2024-01-01T05:22:54.5Z").
+    let event_time_ms = parse_iso8601_ms(time_str).map_err(|detail| ParseError::InvalidField {
+        field: "time",
+        src: SOURCE_NAME,
+        event_id: event_id.clone(),
+        detail,
     })?;
 
     let latitude = props.lat.ok_or_else(|| ParseError::MissingField {
@@ -223,8 +227,7 @@ fn parse_feature(
     // which uses the altitude convention (negative = below surface).
     let depth_km = props.depth.filter(|d| d.is_finite() && *d >= 0.0);
 
-    let magnitude_type =
-        normalise_mag_type(props.magtype.as_deref().unwrap_or("UNKNOWN"));
+    let magnitude_type = normalise_mag_type(props.magtype.as_deref().unwrap_or("UNKNOWN"));
 
     let quality_indicator = emsc_quality(props.evtype.as_deref()).to_owned();
 
@@ -316,7 +319,7 @@ mod tests {
     fn parse_iso8601_ms_invalid_format_fails() {
         assert!(parse_iso8601_ms("not-a-date").is_err());
         assert!(parse_iso8601_ms("2024-13-01T00:00:00Z").is_err()); // month 13
-        assert!(parse_iso8601_ms("2024-01-01 00:00:00").is_err());  // missing T and Z
+        assert!(parse_iso8601_ms("2024-01-01 00:00:00").is_err()); // missing T and Z
     }
 
     #[test]

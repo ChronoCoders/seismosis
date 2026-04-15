@@ -100,12 +100,9 @@ pub(crate) fn build_list_events_query(
     }
     // Bounding box: all four corners must be provided together (validated by the
     // route handler before this function is called).
-    if let (Some(min_lon), Some(min_lat), Some(max_lon), Some(max_lat)) = (
-        query.min_lon,
-        query.min_lat,
-        query.max_lon,
-        query.max_lat,
-    ) {
+    if let (Some(min_lon), Some(min_lat), Some(max_lon), Some(max_lat)) =
+        (query.min_lon, query.min_lat, query.max_lon, query.max_lat)
+    {
         qb.push(" AND location && ST_MakeEnvelope(")
             .push_bind(min_lon)
             .push(", ")
@@ -143,10 +140,7 @@ pub async fn list_events(
 ) -> Result<(Vec<EventResponse>, i64), RequestError> {
     let mut qb = build_list_events_query(query, page, page_size);
 
-    let rows: Vec<EventRow> = qb
-        .build_query_as()
-        .fetch_all(pool)
-        .await?;
+    let rows: Vec<EventRow> = qb.build_query_as().fetch_all(pool).await?;
 
     let total = rows.first().map(|r| r.total).unwrap_or(0);
     let events = rows.into_iter().map(EventResponse::from).collect();
@@ -199,23 +193,43 @@ pub(crate) struct Band {
 }
 
 pub(crate) const BANDS: &[Band] = &[
-    Band { name: "minor",    min: 0.0, max: Some(2.0) },
-    Band { name: "light",    min: 2.0, max: Some(4.0) },
-    Band { name: "moderate", min: 4.0, max: Some(6.0) },
-    Band { name: "strong",   min: 6.0, max: Some(8.0) },
-    Band { name: "major",    min: 8.0, max: None      },
+    Band {
+        name: "minor",
+        min: 0.0,
+        max: Some(2.0),
+    },
+    Band {
+        name: "light",
+        min: 2.0,
+        max: Some(4.0),
+    },
+    Band {
+        name: "moderate",
+        min: 4.0,
+        max: Some(6.0),
+    },
+    Band {
+        name: "strong",
+        min: 6.0,
+        max: Some(8.0),
+    },
+    Band {
+        name: "major",
+        min: 8.0,
+        max: None,
+    },
 ];
 
 /// Per-band, per-window stats row from the DB.
 #[derive(sqlx::FromRow)]
 struct StatsBandRow {
-    count_1h:    i64,
-    count_24h:   i64,
-    count_7d:    i64,
-    count_30d:   i64,
-    max_mag_1h:  Option<f64>,
+    count_1h: i64,
+    count_24h: i64,
+    count_7d: i64,
+    count_30d: i64,
+    max_mag_1h: Option<f64>,
     max_mag_24h: Option<f64>,
-    max_mag_7d:  Option<f64>,
+    max_mag_7d: Option<f64>,
     max_mag_30d: Option<f64>,
 }
 
@@ -277,13 +291,13 @@ pub async fn get_stats(pool: &PgPool) -> Result<Vec<BandStats>, RequestError> {
             band: band.name.to_owned(),
             min_magnitude: band.min,
             max_magnitude: band.max,
-            count_1h:    row.count_1h,
-            count_24h:   row.count_24h,
-            count_7d:    row.count_7d,
-            count_30d:   row.count_30d,
-            max_mag_1h:  row.max_mag_1h,
+            count_1h: row.count_1h,
+            count_24h: row.count_24h,
+            count_7d: row.count_7d,
+            count_30d: row.count_30d,
+            max_mag_1h: row.max_mag_1h,
             max_mag_24h: row.max_mag_24h,
-            max_mag_7d:  row.max_mag_7d,
+            max_mag_7d: row.max_mag_7d,
             max_mag_30d: row.max_mag_30d,
         });
     }
@@ -330,7 +344,8 @@ mod tests {
                 assert!(
                     band.max.is_some(),
                     "band '{}' at index {} should have an upper bound",
-                    band.name, i
+                    band.name,
+                    i
                 );
             } else {
                 assert!(
@@ -345,7 +360,9 @@ mod tests {
     /// The "major" band threshold must be 8.0 per the documented API contract.
     #[test]
     fn major_band_threshold_is_eight() {
-        let major = BANDS.iter().find(|b| b.name == "major")
+        let major = BANDS
+            .iter()
+            .find(|b| b.name == "major")
             .expect("major band must exist");
         assert_eq!(major.min, 8.0);
         assert!(major.max.is_none());
@@ -370,7 +387,8 @@ mod tests {
 
     #[test]
     fn no_filters_produces_no_extra_and_clauses() {
-        let qb = build_list_events_query(&empty_query(), 1, 50);
+        let query = empty_query();
+        let qb = build_list_events_query(&query, 1, 50);
         let sql = qb.sql();
         // Only the structural WHERE TRUE should be present; no dynamic AND clauses.
         assert!(sql.contains("WHERE TRUE"));
@@ -386,7 +404,10 @@ mod tests {
             ..empty_query()
         };
         let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
-        assert!(sql.contains("AND event_time >= "), "expected start_time clause, got: {sql}");
+        assert!(
+            sql.contains("AND event_time >= "),
+            "expected start_time clause, got: {sql}"
+        );
     }
 
     #[test]
@@ -396,7 +417,10 @@ mod tests {
             ..empty_query()
         };
         let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
-        assert!(sql.contains("AND event_time <= "), "expected end_time clause, got: {sql}");
+        assert!(
+            sql.contains("AND event_time <= "),
+            "expected end_time clause, got: {sql}"
+        );
     }
 
     #[test]
@@ -407,8 +431,14 @@ mod tests {
             ..empty_query()
         };
         let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
-        assert!(sql.contains("AND magnitude >= "), "expected min_magnitude clause");
-        assert!(sql.contains("AND magnitude <= "), "expected max_magnitude clause");
+        assert!(
+            sql.contains("AND magnitude >= "),
+            "expected min_magnitude clause"
+        );
+        assert!(
+            sql.contains("AND magnitude <= "),
+            "expected max_magnitude clause"
+        );
     }
 
     #[test]
@@ -446,7 +476,9 @@ mod tests {
 
     #[test]
     fn pagination_uses_supplied_page_and_page_size() {
-        let sql = build_list_events_query(&empty_query(), 3, 25).sql().to_owned();
+        let sql = build_list_events_query(&empty_query(), 3, 25)
+            .sql()
+            .to_owned();
         // LIMIT and OFFSET placeholders appear in order as $N binds.
         assert!(sql.contains("LIMIT "), "expected LIMIT clause");
         assert!(sql.contains("OFFSET "), "expected OFFSET clause");

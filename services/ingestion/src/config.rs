@@ -1,5 +1,5 @@
-use std::{env, time::Duration};
 use crate::error::IngestError;
+use std::{env, time::Duration};
 
 /// All configuration is sourced from environment variables with documented
 /// defaults. See `.env.example` at the project root for descriptions.
@@ -83,12 +83,10 @@ impl Config {
             kafka_topic_dead_letter: var_str("KAFKA_TOPIC_DEAD_LETTER", "earthquakes.dead-letter"),
             schema_registry_url: var_str("SCHEMA_REGISTRY_URL", "http://redpanda:8081"),
             redis_url: var_str("REDIS_URL", "redis://redis:6379"),
-            dedup_ttl_secs: var_u64("DEDUP_TTL_SECS", 604_800)?,     // 7 days
-            poll_interval: Duration::from_secs(
-                var_u64("SOURCE_POLL_INTERVAL_SECS", 60)?,
-            ),
+            dedup_ttl_secs: var_u64("DEDUP_TTL_SECS", 604_800)?, // 7 days
+            poll_interval: Duration::from_secs(var_u64("SOURCE_POLL_INTERVAL_SECS", 60)?),
             lookback_window: Duration::from_secs(
-                var_u64("SOURCE_LOOKBACK_SECS", 600)?,                // 10-min overlap
+                var_u64("SOURCE_LOOKBACK_SECS", 600)?, // 10-min overlap
             ),
             min_magnitude: var_f64("MIN_MAGNITUDE_INGEST", 2.0)?,
             metrics_port: var_u64("METRICS_PORT", 9091)? as u16,
@@ -109,10 +107,7 @@ impl Config {
             kafka_max_retries: var_u64("KAFKA_MAX_RETRIES", 3)? as u32,
             kafka_producer_acks: var_str("KAFKA_PRODUCER_ACKS", "all"),
             kafka_message_timeout_ms: var_u64("KAFKA_MESSAGE_TIMEOUT_MS", 30_000)? as u32,
-            pipeline_version: var_str(
-                "PIPELINE_VERSION",
-                env!("CARGO_PKG_VERSION"),
-            ),
+            pipeline_version: var_str("PIPELINE_VERSION", env!("CARGO_PKG_VERSION")),
         })
     }
 }

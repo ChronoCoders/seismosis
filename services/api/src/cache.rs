@@ -52,10 +52,7 @@ impl Cache {
         };
 
         let mut conn = self.conn.clone();
-        match conn
-            .set_ex::<_, _, ()>(key, json, ttl_secs)
-            .await
-        {
+        match conn.set_ex::<_, _, ()>(key, json, ttl_secs).await {
             Ok(()) => true,
             Err(e) => {
                 warn!(error = %e, key, "Redis SET failed");

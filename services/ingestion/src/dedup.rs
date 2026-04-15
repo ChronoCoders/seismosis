@@ -147,10 +147,8 @@ impl Deduplicator {
                 let key = format!("{}{}", KEY_PREFIX, source_id);
                 let mut c = conn.clone();
 
-                let result: redis::RedisResult<bool> = redis::cmd("EXISTS")
-                    .arg(&key)
-                    .query_async(&mut c)
-                    .await;
+                let result: redis::RedisResult<bool> =
+                    redis::cmd("EXISTS").arg(&key).query_async(&mut c).await;
 
                 match result {
                     Ok(exists) => {

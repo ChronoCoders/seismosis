@@ -30,9 +30,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use apache_avro::Schema;
-use futures::future::join_all;
 use axum::{body::Body, http::Response, routing::get, Router};
 use chrono::Utc;
+use futures::future::join_all;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
@@ -80,17 +80,12 @@ async fn main() -> anyhow::Result<()> {
     // ── Schema Registry ───────────────────────────────────────────────────
     let http_client = reqwest::Client::builder()
         .timeout(config.http_timeout)
-        .user_agent(concat!(
-            "seismosis-ingestion/",
-            env!("CARGO_PKG_VERSION")
-        ))
+        .user_agent(concat!("seismosis-ingestion/", env!("CARGO_PKG_VERSION")))
         .gzip(true)
         .build()?;
 
-    let sr_client = SchemaRegistryClient::new(
-        config.schema_registry_url.clone(),
-        http_client.clone(),
-    );
+    let sr_client =
+        SchemaRegistryClient::new(config.schema_registry_url.clone(), http_client.clone());
 
     let schema_id = sr_client
         .register_schema(schema::SCHEMA_SUBJECT, schema::AVRO_SCHEMA)
@@ -105,15 +100,17 @@ async fn main() -> anyhow::Result<()> {
         .with_label_values(&["ok"])
         .inc();
 
-    info!(schema_id, subject = schema::SCHEMA_SUBJECT, "Avro schema registered");
+    info!(
+        schema_id,
+        subject = schema::SCHEMA_SUBJECT,
+        "Avro schema registered"
+    );
 
     let avro_schema = Schema::parse_str(schema::AVRO_SCHEMA)?;
     let encoder = Arc::new(AvroEncoder::new(avro_schema, schema_id));
 
     // ── Deduplication store ───────────────────────────────────────────────
-    let deduplicator = Arc::new(
-        Deduplicator::new(&config.redis_url, config.dedup_ttl_secs).await,
-    );
+    let deduplicator = Arc::new(Deduplicator::new(&config.redis_url, config.dedup_ttl_secs).await);
 
     if !deduplicator.is_redis_healthy() {
         warn!(
@@ -130,8 +127,11 @@ async fn main() -> anyhow::Result<()> {
     // not abort the service — rejected events are retried from the source on
     // the next poll cycle since mark_seen is never called on error paths.
     let dlq_producer = Arc::new(
-        DlqProducer::new(&config.kafka_brokers, config.kafka_topic_dead_letter.clone())
-            .map_err(|e| anyhow::anyhow!("dlq producer: {}", e))?,
+        DlqProducer::new(
+            &config.kafka_brokers,
+            config.kafka_topic_dead_letter.clone(),
+        )
+        .map_err(|e| anyhow::anyhow!("dlq producer: {}", e))?,
     );
     info!(
         topic = config.kafka_topic_dead_letter.as_str(),
@@ -142,7 +142,11 @@ async fn main() -> anyhow::Result<()> {
     let sources: Vec<Box<dyn SeismicSource>> = vec![
         Box::new(UsgsSource::new(http_client.clone(), Arc::clone(&config))),
         Box::new(EmscSource::new(http_client.clone(), Arc::clone(&config))),
-        Box::new(AfadSource::new(http_client.clone(), Arc::clone(&config), Arc::clone(&metrics))),
+        Box::new(AfadSource::new(
+            http_client.clone(),
+            Arc::clone(&config),
+            Arc::clone(&metrics),
+        )),
     ];
 
     // ── Shutdown channel ──────────────────────────────────────────────────
@@ -165,12 +169,14 @@ async fn main() -> anyhow::Result<()> {
     // ── Poll loop ─────────────────────────────────────────────────────────
     let poll_handle = tokio::spawn(run_poll_loop(
         sources,
-        kafka_producer,
-        dlq_producer,
-        deduplicator,
-        encoder,
-        Arc::clone(&metrics),
-        Arc::clone(&config),
+        PollLoopCtx {
+            producer: kafka_producer,
+            dlq: dlq_producer,
+            deduplicator,
+            encoder,
+            metrics: Arc::clone(&metrics),
+            config: Arc::clone(&config),
+        },
         shutdown_rx,
     ));
 
@@ -198,16 +204,29 @@ async fn main() -> anyhow::Result<()> {
 
 // ─── Poll loop ────────────────────────────────────────────────────────────────
 
-async fn run_poll_loop(
-    sources: Vec<Box<dyn SeismicSource>>,
+/// Shared services threaded through the poll loop.
+struct PollLoopCtx {
     producer: Arc<EventProducer>,
     dlq: Arc<DlqProducer>,
     deduplicator: Arc<Deduplicator>,
     encoder: Arc<AvroEncoder>,
     metrics: Arc<Metrics>,
     config: Arc<Config>,
+}
+
+async fn run_poll_loop(
+    sources: Vec<Box<dyn SeismicSource>>,
+    ctx: PollLoopCtx,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let PollLoopCtx {
+        producer,
+        dlq,
+        deduplicator,
+        encoder,
+        metrics,
+        config,
+    } = ctx;
     info!("Poll loop started");
 
     loop {
@@ -217,13 +236,12 @@ async fn run_poll_loop(
         // A stalled source (e.g. USGS timing out) no longer blocks EMSC.
         // Each future captures a reference to its source; join_all drives them
         // all to completion before we proceed to the processing phase.
-        let fetch_results = join_all(
-            sources.iter().map(|source| async move {
-                let poll_start = Instant::now();
-                let result = source.fetch(since).await;
-                (source.name(), poll_start, result)
-            })
-        ).await;
+        let fetch_results = join_all(sources.iter().map(|source| async move {
+            let poll_start = Instant::now();
+            let result = source.fetch(since).await;
+            (source.name(), poll_start, result)
+        }))
+        .await;
 
         // ── Process each source's results sequentially ────────────────────────
         // The per-event inner loop (dedup → encode → produce → mark) must run
@@ -387,10 +405,7 @@ async fn run_metrics_server(
 
                     match encoder.encode(&metrics.registry.gather(), &mut buf) {
                         Ok(()) => Response::builder()
-                            .header(
-                                axum::http::header::CONTENT_TYPE,
-                                encoder.format_type(),
-                            )
+                            .header(axum::http::header::CONTENT_TYPE, encoder.format_type())
                             .body(Body::from(buf))
                             .unwrap_or_else(|_| {
                                 Response::builder()
