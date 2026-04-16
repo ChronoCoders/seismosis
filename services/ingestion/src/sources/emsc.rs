@@ -107,6 +107,13 @@ impl EmscSource {
             })?;
 
         let status = response.status();
+
+        // HTTP 204 is the canonical FDSN "no events matched" response.
+        if status == reqwest::StatusCode::NO_CONTENT {
+            debug!(source = SOURCE_NAME, "No events in window (HTTP 204)");
+            return Ok(vec![]);
+        }
+
         if !status.is_success() {
             return Err(IngestError::HttpFetch {
                 src: SOURCE_NAME,
@@ -121,8 +128,17 @@ impl EmscSource {
             inner: e,
         })?;
 
+        // EMSC non-standardly returns HTTP 200 with an empty body when there
+        // are no events in the requested window. Treat it the same as 204 —
+        // the query succeeded but matched no events. Do NOT propagate as an
+        // error: that would trigger the retry strategy and generate ERROR logs
+        // every poll cycle during quiet periods.
         if body.is_empty() {
-            return Err(IngestError::EmptyResponse { src: SOURCE_NAME });
+            debug!(
+                source = SOURCE_NAME,
+                "No events in window (HTTP 200 + empty body)"
+            );
+            return Ok(vec![]);
         }
 
         let collection: FeatureCollection =
