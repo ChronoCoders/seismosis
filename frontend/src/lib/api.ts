@@ -35,7 +35,7 @@ export async function fetchEvent(sourceId: string): Promise<EarthquakeEvent | nu
 }
 
 export async function fetchStats(): Promise<StatsResponse> {
-  const res = await fetch(`${apiBase()}/stats`, { next: { revalidate: 60 } });
+  const res = await fetch(`${apiBase()}/stats`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`GET /v1/stats → HTTP ${res.status}`);
   return res.json() as Promise<StatsResponse>;
 }
