@@ -86,7 +86,7 @@ impl Config {
             dedup_ttl_secs: var_u64("DEDUP_TTL_SECS", 604_800)?, // 7 days
             poll_interval: Duration::from_secs(var_u64("SOURCE_POLL_INTERVAL_SECS", 60)?),
             lookback_window: Duration::from_secs(
-                var_u64("SOURCE_LOOKBACK_SECS", 600)?, // 10-min overlap
+                var_u64("SOURCE_LOOKBACK_SECS", 14400)?, // 4-hour overlap — AFAD publishes with ~2.5 hr delay
             ),
             min_magnitude: var_f64("MIN_MAGNITUDE_INGEST", 2.0)?,
             metrics_port: var_u64("METRICS_PORT", 9091)? as u16,
