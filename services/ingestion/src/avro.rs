@@ -48,8 +48,6 @@ impl AvroEncoder {
     }
 }
 
-// ─── Avro Value construction ──────────────────────────────────────────────────
-
 fn event_to_avro(e: &RawEarthquakeEvent) -> Value {
     Value::Record(vec![
         ("source_id".into(), Value::String(e.source_id.clone())),
@@ -109,8 +107,6 @@ fn nullable_string(v: Option<&str>) -> Value {
     }
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,8 +143,6 @@ mod tests {
             panic!("Expected Avro Record, got {:?}", decoded);
         }
     }
-
-    // ── Confluent wire header ─────────────────────────────────────────────
 
     #[test]
     fn wire_header_magic_byte_is_zero() {
@@ -188,8 +182,6 @@ mod tests {
             "Encoded output must contain data beyond the 5-byte header"
         );
     }
-
-    // ── event_to_avro round-trip ──────────────────────────────────────────
 
     #[test]
     fn roundtrip_required_string_fields() {

@@ -7,30 +7,23 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Config:
-    # ── Kafka ──────────────────────────────────────────────────────────────
     kafka_brokers: str
     kafka_topic_raw: str
     kafka_topic_enriched: str
     kafka_topic_alerts: str
     kafka_topic_dead_letter: str
     kafka_group_id: str
-    # ── Schema Registry ────────────────────────────────────────────────────
     schema_registry_url: str
-    # ── PostgreSQL ─────────────────────────────────────────────────────────
     database_url: str
     db_pool_min: int
     db_pool_max: int
-    # ── Redis ──────────────────────────────────────────────────────────────
     redis_url: str
     event_cache_ttl_secs: int
-    # ── Metrics HTTP server ────────────────────────────────────────────────
     metrics_port: int
-    # ── Analysis parameters ────────────────────────────────────────────────
     alert_magnitude_threshold: float
     aftershock_window_days: int
     aftershock_distance_km: float
     analysis_version: str
-    # ── Logging ────────────────────────────────────────────────────────────
     log_level: str
 
     @classmethod

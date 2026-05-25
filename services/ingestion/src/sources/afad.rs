@@ -42,8 +42,6 @@ use crate::sources::{afad_quality, normalise_mag_type, validate_coordinates};
 
 const SOURCE_NAME: &str = "AFAD";
 
-// ─── Serde shapes ────────────────────────────────────────────────────────────
-
 /// A single earthquake entry in the AFAD v2 response array.
 ///
 /// All numeric fields are delivered as strings; `Option<String>` allows
@@ -72,8 +70,6 @@ struct AfadEvent {
     /// True if this record supersedes an earlier automated solution.
     is_event_update: Option<bool>,
 }
-
-// ─── Source implementation ────────────────────────────────────────────────────
 
 pub struct AfadSource {
     client: reqwest::Client,
@@ -187,8 +183,6 @@ impl SeismicSource for AfadSource {
     }
 }
 
-// ─── Event parser ─────────────────────────────────────────────────────────────
-
 fn parse_event(
     raw: AfadEvent,
     ingested_at_ms: i64,
@@ -203,7 +197,6 @@ fn parse_event(
             event_id: "(unknown)".into(),
         })?;
 
-    // ── date ─────────────────────────────────────────────────────────────────
     let date_str = raw
         .date
         .as_deref()
@@ -219,7 +212,6 @@ fn parse_event(
         detail,
     })?;
 
-    // ── magnitude ─────────────────────────────────────────────────────────────
     let mag_str = raw
         .magnitude
         .as_deref()
@@ -238,7 +230,6 @@ fn parse_event(
             detail: format!("cannot parse '{}' as f64", mag_str),
         })?;
 
-    // ── coordinates ──────────────────────────────────────────────────────────
     let lat_str = raw
         .latitude
         .as_deref()
@@ -277,7 +268,6 @@ fn parse_event(
 
     validate_coordinates(latitude, longitude, SOURCE_NAME, &event_id)?;
 
-    // ── depth ─────────────────────────────────────────────────────────────────
     // Missing or non-finite → None (stored as NULL). Negative values are
     // physically invalid for this field; log and discard rather than silently
     // promote to NULL without a trace.
@@ -299,15 +289,11 @@ fn parse_event(
         },
     };
 
-    // ── magnitude type ────────────────────────────────────────────────────────
-    // The `type` field in the AFAD v2 API is the magnitude scale, not an event
-    // classification. There is no review-status field in this API version.
     let magnitude_type = normalise_mag_type(raw.magnitude_type_raw.as_deref().unwrap_or("UNKNOWN"));
 
     let quality_indicator = afad_quality(raw.is_event_update).to_owned();
     let source_id = format!("AFAD:{}", event_id);
 
-    // Store original wire strings so the payload is a faithful forensic record.
     let raw_payload = serde_json::json!({
         "eventID": event_id,
         "date": date_str,
@@ -338,8 +324,6 @@ fn parse_event(
     })
 }
 
-// ─── Timestamp helper ─────────────────────────────────────────────────────────
-
 /// Parse an AFAD v2 UTC datetime string into Unix epoch milliseconds.
 ///
 /// The live API returns ISO-8601-like strings without a timezone suffix, e.g.
@@ -365,13 +349,9 @@ fn parse_afad_date(s: &str) -> Result<i64, String> {
         })
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── parse_afad_date ───────────────────────────────────────────────────────
 
     #[test]
     fn parse_afad_date_valid_no_z() {
@@ -414,8 +394,6 @@ mod tests {
     fn parse_afad_date_invalid_month_fails() {
         assert!(parse_afad_date("2026-13-01T00:00:00").is_err());
     }
-
-    // ── parse_event ───────────────────────────────────────────────────────────
 
     fn valid_raw() -> AfadEvent {
         AfadEvent {

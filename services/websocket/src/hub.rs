@@ -25,14 +25,10 @@ use crate::event::{AlertEvent, EnrichedEvent, ServerMessage};
 use crate::filter::SubscriptionFilter;
 use crate::metrics::Metrics;
 
-// ─── Internal state ───────────────────────────────────────────────────────────
-
 struct ClientEntry {
     filter: SubscriptionFilter,
     tx: mpsc::Sender<Arc<ServerMessage>>,
 }
-
-// ─── Hub ──────────────────────────────────────────────────────────────────────
 
 pub struct Hub {
     clients: RwLock<HashMap<Uuid, ClientEntry>>,

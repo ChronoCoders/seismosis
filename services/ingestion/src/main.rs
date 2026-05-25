@@ -45,12 +45,8 @@ use producer::EventProducer;
 use registry::SchemaRegistryClient;
 use sources::{afad::AfadSource, emsc::EmscSource, usgs::UsgsSource, SeismicSource};
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
-
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    // ── Tracing / structured logging ──────────────────────────────────────
-    // JSON format for production; override with RUST_LOG env var.
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(
@@ -74,10 +70,8 @@ async fn main() -> anyhow::Result<()> {
         "Seismosis ingestion service starting",
     );
 
-    // ── Prometheus metrics ────────────────────────────────────────────────
     let metrics = Metrics::new()?;
 
-    // ── Schema Registry ───────────────────────────────────────────────────
     let http_client = reqwest::Client::builder()
         .timeout(config.http_timeout)
         .user_agent(concat!("seismosis-ingestion/", env!("CARGO_PKG_VERSION")))
@@ -109,7 +103,6 @@ async fn main() -> anyhow::Result<()> {
     let avro_schema = Schema::parse_str(schema::AVRO_SCHEMA)?;
     let encoder = Arc::new(AvroEncoder::new(avro_schema, schema_id));
 
-    // ── Deduplication store ───────────────────────────────────────────────
     let deduplicator = Arc::new(Deduplicator::new(&config.redis_url, config.dedup_ttl_secs).await);
 
     if !deduplicator.is_redis_healthy() {
@@ -119,13 +112,8 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // ── Kafka producer ────────────────────────────────────────────────────
     let kafka_producer = Arc::new(EventProducer::new(&config, Arc::clone(&metrics))?);
 
-    // ── Dead-letter producer ──────────────────────────────────────────────
-    // Best-effort delivery (acks=1). DLQ failures are logged at ERROR but do
-    // not abort the service — rejected events are retried from the source on
-    // the next poll cycle since mark_seen is never called on error paths.
     let dlq_producer = Arc::new(
         DlqProducer::new(
             &config.kafka_brokers,
@@ -138,7 +126,6 @@ async fn main() -> anyhow::Result<()> {
         "Dead-letter producer ready"
     );
 
-    // ── Sources ───────────────────────────────────────────────────────────
     let sources: Vec<Box<dyn SeismicSource>> = vec![
         Box::new(UsgsSource::new(http_client.clone(), Arc::clone(&config))),
         Box::new(EmscSource::new(http_client.clone(), Arc::clone(&config))),
@@ -149,12 +136,8 @@ async fn main() -> anyhow::Result<()> {
         )),
     ];
 
-    // ── Shutdown channel ──────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // ── Metrics server ────────────────────────────────────────────────────
-    // A clone of the shutdown receiver is passed in so the server can shut
-    // down gracefully (draining in-flight scrapes) when the signal fires.
     let metrics_server_handle = {
         let metrics = Arc::clone(&metrics);
         let port = config.metrics_port;
@@ -166,7 +149,6 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    // ── Poll loop ─────────────────────────────────────────────────────────
     let poll_handle = tokio::spawn(run_poll_loop(
         sources,
         PollLoopCtx {
@@ -180,7 +162,6 @@ async fn main() -> anyhow::Result<()> {
         shutdown_rx,
     ));
 
-    // ── Await shutdown signal ─────────────────────────────────────────────
     shutdown_signal().await;
     info!("Shutdown signal received — draining in-flight work");
 
@@ -201,8 +182,6 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-// ─── Poll loop ────────────────────────────────────────────────────────────────
 
 /// Shared services threaded through the poll loop.
 struct PollLoopCtx {
@@ -232,7 +211,6 @@ async fn run_poll_loop(
     loop {
         let since = Utc::now() - config.lookback_window;
 
-        // ── Fetch all sources concurrently ────────────────────────────────────
         // A stalled source (e.g. USGS timing out) no longer blocks EMSC.
         // Each future captures a reference to its source; join_all drives them
         // all to completion before we proceed to the processing phase.
@@ -243,9 +221,6 @@ async fn run_poll_loop(
         }))
         .await;
 
-        // ── Process each source's results sequentially ────────────────────────
-        // The per-event inner loop (dedup → encode → produce → mark) must run
-        // sequentially to preserve ordering guarantees within a source.
         for (source_name, poll_start, result) in fetch_results {
             match result {
                 Ok(events) => {
@@ -261,7 +236,6 @@ async fn run_poll_loop(
                     let mut rejected = 0usize;
 
                     for event in events {
-                        // ── 1. Check dedup (read-only, no side effect) ────────
                         if deduplicator.is_duplicate(&event.source_id).await {
                             deduplicated += 1;
                             metrics
@@ -278,7 +252,6 @@ async fn run_poll_loop(
                                 .inc();
                         }
 
-                        // ── 2. Encode ─────────────────────────────────────────
                         let payload = match encoder.encode(&event) {
                             Ok(b) => b,
                             Err(e) => {
@@ -304,10 +277,6 @@ async fn run_poll_loop(
                             }
                         };
 
-                        // ── 3. Produce, then mark ─────────────────────────────
-                        // The dedup key is written ONLY after a successful produce.
-                        // If the produce fails the key is not set, so the event
-                        // will be retried on the next poll cycle.
                         match producer.send(&event.source_id, payload).await {
                             Ok(()) => {
                                 deduplicator.mark_seen(&event.source_id).await;
@@ -383,8 +352,6 @@ async fn run_poll_loop(
     info!("Poll loop stopped");
 }
 
-// ─── Metrics HTTP server ──────────────────────────────────────────────────────
-
 async fn run_metrics_server(
     metrics: Arc<Metrics>,
     port: u16,
@@ -443,8 +410,6 @@ async fn run_metrics_server(
         .await
         .map_err(|e| error::IngestError::HttpServer(e.to_string()))
 }
-
-// ─── Shutdown signal ──────────────────────────────────────────────────────────
 
 /// Resolves on SIGTERM (Unix) or Ctrl-C (all platforms).
 async fn shutdown_signal() {

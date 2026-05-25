@@ -16,8 +16,6 @@ interface Props {
   wsStatus: WsStatus;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 const HIST_BANDS = [
   { key: 'minor',    label: 'M < 2',  midMag: 0.1, maxMag: 2   },
   { key: 'light',    label: 'M 2–4',  midMag: 2.1, maxMag: 4   },
@@ -47,8 +45,6 @@ const WS_LABELS: Record<WsStatus, { label: string; dot: string; text: string }> 
   disconnected: { label: 'BAĞLANTI YOK', dot: 'bg-text-muted',              text: 'text-text-muted' },
   error:        { label: 'HATA',         dot: 'bg-mag-red',                  text: 'text-mag-red'   },
 };
-
-// ── Quality distribution histogram ────────────────────────────────────────────
 
 function QualityHistogram({ events }: { events: DisplayEvent[] }) {
   const bandData = useMemo(() => {
@@ -106,7 +102,6 @@ function QualityHistogram({ events }: { events: DisplayEvent[] }) {
           );
         })}
       </div>
-      {/* Legend */}
       <div className="flex items-center gap-5 mt-5 pt-4 border-t border-border/40">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-mag-green" style={{ opacity: 0.9 }} />
@@ -118,7 +113,6 @@ function QualityHistogram({ events }: { events: DisplayEvent[] }) {
         </div>
       </div>
 
-      {/* Summary counts */}
       {events.length > 0 && (
         <div className="mt-5 pt-4 border-t border-border/40 grid grid-cols-2 gap-3">
           <div className="bg-surface-elevated rounded border border-border px-3 py-2 text-center">
@@ -139,8 +133,6 @@ function QualityHistogram({ events }: { events: DisplayEvent[] }) {
   );
 }
 
-// ── Realtime tab ──────────────────────────────────────────────────────────────
-
 export default function RealtimeTab({ events, wsStatus }: Props) {
   const wsCfg = WS_LABELS[wsStatus];
   const liveCount = events.filter((e) => e.is_live).length;
@@ -149,9 +141,7 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
 
-      {/* ── Left: scrolling event stream ── */}
       <div className="flex flex-col flex-[3] min-h-0 border-r border-border">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0 bg-surface">
           <div className="flex items-center gap-2">
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${wsCfg.dot}`} />
@@ -168,7 +158,6 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
           </div>
         </div>
 
-        {/* Stream list */}
         <div className="overflow-y-auto flex-1 overscroll-contain">
           {displayEvents.length === 0 ? (
             <div className="flex items-center justify-center h-32 text-text-muted text-sm">
@@ -195,7 +184,6 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
                       prefetch={false}
                       className="flex items-center gap-3 px-4 py-2 hover:bg-surface-elevated transition-colors"
                     >
-                      {/* Magnitude */}
                       <div
                         className={`shrink-0 w-12 text-center rounded py-1 border ${info.bgClass} ${info.borderClass}`}
                       >
@@ -206,7 +194,6 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
                         </div>
                       </div>
 
-                      {/* Content */}
                       <div className="flex-1 min-w-0">
                         <p
                           className="text-xs text-text-primary truncate"
@@ -235,7 +222,6 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
                         </div>
                       </div>
 
-                      {/* Quality indicator chip */}
                       <div
                         className="shrink-0 w-5 h-5 rounded flex items-center justify-center bg-surface-elevated border border-border"
                         title={`Kalite: ${event.quality_indicator}`}
@@ -259,7 +245,6 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
         </div>
       </div>
 
-      {/* ── Right: quality histogram ── */}
       <div className="w-[300px] shrink-0 flex flex-col min-h-0 bg-surface">
         <div className="px-4 py-2.5 border-b border-border shrink-0">
           <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">

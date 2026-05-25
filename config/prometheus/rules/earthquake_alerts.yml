@@ -1,13 +1,3 @@
-# ============================================================
-# Prometheus Alert Rules — Seismosis Platform
-# ============================================================
-# All alerts include:
-#   - severity label: critical | warning | info
-#   - runbook_url annotation: placeholder for ops runbook
-#   - summary and description annotations
-#
-# Evaluation interval: 15s (set in prometheus.yml)
-
 groups:
 
   # ──────────────────────────────────────────────────────────
@@ -16,9 +6,6 @@ groups:
   - name: seismic_events
     rules:
 
-      # Significant earthquake detected — M≥5.0
-      # This is an informational alert to surface in Grafana.
-      # Real notifications are handled by the application layer.
       - alert: SignificantEarthquakeDetected
         expr: >
           increase(seismosis_storage_events_upserted_total{magnitude_class="major"}[5m]) > 0
@@ -33,7 +20,6 @@ groups:
             within the last 5 minutes. Verify alert generation on the earthquakes.alerts topic.
           runbook_url: "https://docs.seismosis.internal/runbooks/significant-event"
 
-      # No events ingested in the last 10 minutes — possible source outage
       - alert: SeismicIngestionStalled
         expr: >
           rate(seismosis_ingestion_events_published_total[10m]) == 0
@@ -49,7 +35,6 @@ groups:
             service crash. Check: docker compose logs ingestion
           runbook_url: "https://docs.seismosis.internal/runbooks/ingestion-stalled"
 
-      # High dead-letter queue rate — data quality or schema issue
       - alert: DeadLetterQueueSpike
         expr: >
           rate(seismosis_ingestion_events_rejected_total[5m])
@@ -89,7 +74,6 @@ groups:
   - name: redpanda
     rules:
 
-      # Consumer lag for alert topic — must be low (time-sensitive)
       - alert: AlertTopicConsumerLagHigh
         expr: >
           kafka_consumer_group_lag{topic="earthquakes.alerts"} > 50
@@ -105,7 +89,21 @@ groups:
             High-magnitude events may not be notified in time.
           runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-alerts"
 
-      # Consumer lag for cleaned events — storage pipeline
+      - alert: AnalysisConsumerLagHigh
+        expr: >
+          kafka_consumer_group_lag{topic="earthquakes.raw",consumergroup="seismosis-analysis-group"} > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Analysis consumer lag: {{ $value }} messages"
+          description: >
+            Consumer group seismosis-analysis-group is {{ $value }} messages behind on
+            earthquakes.raw. Enrichment pipeline latency is degraded; enriched events and
+            alert generation will lag by at least {{ $value }} unprocessed messages.
+          runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-analysis"
+
       - alert: ProcessedEventsConsumerLagHigh
         expr: >
           kafka_consumer_group_lag{topic="earthquakes.cleaned"} > 500
@@ -120,7 +118,6 @@ groups:
             on earthquakes.cleaned. Database writes are falling behind.
           runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-processed"
 
-      # Consumer lag for raw events — ingestion pipeline
       - alert: RawEventsConsumerLagHigh
         expr: >
           kafka_consumer_group_lag{topic="earthquakes.raw"} > 1000
@@ -135,7 +132,6 @@ groups:
             Processing latency is increasing.
           runbook_url: "https://docs.seismosis.internal/runbooks/consumer-lag-raw"
 
-      # Redpanda broker unreachable
       - alert: RedpandaBrokerDown
         expr: >
           up{job="redpanda"} == 0
@@ -156,7 +152,6 @@ groups:
   - name: postgresql
     rules:
 
-      # Database connection pool near exhaustion
       - alert: PostgresConnectionsHigh
         expr: >
           pg_stat_database_numbackends{datname="seismosis"}
@@ -188,7 +183,6 @@ groups:
             New connections are likely failing. Immediate action required.
           runbook_url: "https://docs.seismosis.internal/runbooks/postgres-connections-critical"
 
-      # Database down
       - alert: PostgresDown
         expr: >
           up{job="postgres-exporter"} == 0
@@ -203,7 +197,6 @@ groups:
             down, restarting, or the exporter itself is misconfigured.
           runbook_url: "https://docs.seismosis.internal/runbooks/postgres-down"
 
-      # Long-running transactions (> 5 minutes)
       - alert: PostgresLongRunningTransaction
         expr: >
           pg_stat_activity_max_tx_duration{datname="seismosis"} > 300
@@ -219,7 +212,6 @@ groups:
             table bloat, and block autovacuum. Investigate with pg_stat_activity.
           runbook_url: "https://docs.seismosis.internal/runbooks/postgres-long-tx"
 
-      # Database size growth (> 20GB triggers review)
       - alert: PostgresDatabaseSizeLarge
         expr: >
           pg_database_size_bytes{datname="seismosis"} > 20 * 1024 * 1024 * 1024
@@ -240,7 +232,6 @@ groups:
   - name: redis
     rules:
 
-      # Memory usage approaching maxmemory
       - alert: RedisMemoryHigh
         expr: >
           redis_memory_used_bytes / redis_config_maxmemory > 0.8
@@ -270,7 +261,6 @@ groups:
             eviction is in progress. Application performance is impacted.
           runbook_url: "https://docs.seismosis.internal/runbooks/redis-memory-critical"
 
-      # Redis down
       - alert: RedisDown
         expr: >
           up{job="redis-exporter"} == 0
@@ -285,7 +275,6 @@ groups:
             through to PostgreSQL, significantly increasing database load.
           runbook_url: "https://docs.seismosis.internal/runbooks/redis-down"
 
-      # Cache hit rate drop
       - alert: RedisCacheHitRateLow
         expr: >
           rate(redis_keyspace_hits_total[5m])
@@ -308,7 +297,6 @@ groups:
   - name: infrastructure
     rules:
 
-      # Any monitored service down
       - alert: ServiceDown
         expr: up == 0
         for: 2m
@@ -322,7 +310,6 @@ groups:
             The service may have crashed or become unreachable.
           runbook_url: "https://docs.seismosis.internal/runbooks/service-down"
 
-      # Prometheus storage approaching retention limit
       - alert: PrometheusStorageHigh
         expr: >
           prometheus_tsdb_storage_blocks_bytes / (10 * 1024 * 1024 * 1024) > 0.8

@@ -26,8 +26,6 @@ use crate::error::WsError;
 const HEADER_LEN: usize = 5;
 const MAGIC_BYTE: u8 = 0x00;
 
-// ─── Schema Registry cache ────────────────────────────────────────────────────
-
 /// Thread-safe, lazily-populated cache of parsed Avro schemas by schema ID.
 pub struct SchemaCache {
     base_url: String,
@@ -107,8 +105,6 @@ impl SchemaCache {
         Ok(schema)
     }
 }
-
-// ─── Avro decoder ─────────────────────────────────────────────────────────────
 
 /// Decodes Confluent wire-format Avro messages using a shared schema cache.
 pub struct AvroDecoder {

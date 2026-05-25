@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _to_ms(v: int | datetime) -> int:
     """Coerce a fastavro timestamp-millis value (datetime or int) to epoch ms."""
@@ -20,7 +19,6 @@ def _from_ms(ms: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
 
 
-# ─── Raw event (earthquakes.raw consumer) ─────────────────────────────────────
 
 @dataclass(frozen=True)
 class RawEvent:
@@ -69,7 +67,6 @@ class RawEvent:
         )
 
 
-# ─── Aftershock detection intermediate ────────────────────────────────────────
 
 @dataclass(frozen=True)
 class MainshockInfo:
@@ -81,7 +78,6 @@ class MainshockInfo:
     distance_km: float
 
 
-# ─── Enriched event (earthquakes.enriched producer) ───────────────────────────
 
 @dataclass(frozen=True)
 class EnrichedEvent:
@@ -91,7 +87,6 @@ class EnrichedEvent:
     Carries all raw fields through unchanged plus analysis enrichment.
     """
 
-    # ── Carried through from raw ───────────────────────────────────────────
     source_id: str
     source_network: str
     event_time_ms: int
@@ -106,7 +101,6 @@ class EnrichedEvent:
     ingested_at_ms: int
     pipeline_version: str
 
-    # ── Analysis enrichment ────────────────────────────────────────────────
     ml_magnitude: float
     ml_magnitude_source: str
     is_aftershock: bool
@@ -165,7 +159,6 @@ class EnrichedEvent:
         }
 
 
-# ─── Alert event (earthquakes.alerts producer) ────────────────────────────────
 
 @dataclass(frozen=True)
 class AlertEvent:

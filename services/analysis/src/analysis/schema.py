@@ -21,7 +21,6 @@ ENRICHED_SCHEMA: dict[str, Any] = {
         "ETAS aftershock classification, and risk estimates."
     ),
     "fields": [
-        # ── Carried through from raw ─────────────────────────────────────
         {"name": "source_id", "type": "string"},
         {"name": "source_network", "type": "string"},
         {
@@ -41,7 +40,6 @@ ENRICHED_SCHEMA: dict[str, Any] = {
             "type": {"type": "long", "logicalType": "timestamp-millis"},
         },
         {"name": "pipeline_version", "type": "string"},
-        # ── Analysis enrichment ──────────────────────────────────────────
         {
             "name": "ml_magnitude",
             "type": "double",

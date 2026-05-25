@@ -55,11 +55,8 @@ use metrics::Metrics;
 const ENRICHED_SUBJECT: &str = "earthquakes.enriched-value";
 const ALERTS_SUBJECT: &str = "earthquakes.alerts-value";
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
-
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    // ── Tracing / structured logging ──────────────────────────────────────
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(
@@ -86,13 +83,11 @@ async fn main() -> anyhow::Result<()> {
         "Seismosis WebSocket service starting",
     );
 
-    // ── HTTP client for Schema Registry ──────────────────────────────────
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("seismosis-websocket/", env!("CARGO_PKG_VERSION")))
         .build()?;
 
-    // ── Schema Registry cache + Avro decoder ─────────────────────────────
     let schema_cache = SchemaCache::new(config.schema_registry_url.clone(), http_client.clone());
     let decoder = Arc::new(AvroDecoder::new(Arc::clone(&schema_cache)));
 
@@ -104,7 +99,6 @@ async fn main() -> anyhow::Result<()> {
         warn!(error = %e, "Schema cache pre-warm failed — will fetch schemas on demand");
     }
 
-    // ── Kafka consumer ────────────────────────────────────────────────────
     // auto.offset.reset = latest: the WebSocket service is real-time.
     // Historical replay is the REST API's responsibility, not ours.
     //
@@ -148,16 +142,12 @@ async fn main() -> anyhow::Result<()> {
         "Kafka consumer subscribed",
     );
 
-    // ── Prometheus metrics ────────────────────────────────────────────────
     let metrics = Metrics::new()?;
 
-    // ── Client hub ────────────────────────────────────────────────────────
     let hub = Hub::new(Arc::clone(&metrics), config.client_channel_capacity);
 
-    // ── Shutdown channel ──────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // ── Metrics HTTP server ───────────────────────────────────────────────
     let metrics_handle = {
         let m = Arc::clone(&metrics);
         let port = config.metrics_port;
@@ -169,7 +159,6 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    // ── Kafka consume loop ────────────────────────────────────────────────
     let consume_handle = tokio::spawn(run_consume_loop(
         Arc::clone(&consumer),
         Arc::clone(&decoder),
@@ -179,7 +168,6 @@ async fn main() -> anyhow::Result<()> {
         shutdown_rx.clone(),
     ));
 
-    // ── WebSocket accept loop ─────────────────────────────────────────────
     let ws_addr = format!("0.0.0.0:{}", config.ws_port);
     let ws_listener = TcpListener::bind(&ws_addr)
         .await
@@ -195,7 +183,6 @@ async fn main() -> anyhow::Result<()> {
         shutdown_rx.clone(),
     ));
 
-    // ── Await shutdown signal ─────────────────────────────────────────────
     shutdown_signal().await;
     info!("Shutdown signal received — beginning graceful drain");
 
@@ -224,8 +211,6 @@ async fn main() -> anyhow::Result<()> {
     info!("Seismosis WebSocket service stopped cleanly");
     Ok(())
 }
-
-// ─── Schema Registry pre-warm ─────────────────────────────────────────────────
 
 /// Resolves both Avro subjects to schema IDs and populates the decoder cache.
 ///
@@ -282,8 +267,6 @@ async fn pre_warm_cache(
     }
     Ok(())
 }
-
-// ─── Kafka consume loop ───────────────────────────────────────────────────────
 
 async fn run_consume_loop(
     consumer: Arc<StreamConsumer>,
@@ -432,8 +415,6 @@ async fn run_consume_loop(
     info!("Consume loop stopped");
 }
 
-// ─── WebSocket accept loop ────────────────────────────────────────────────────
-
 async fn run_accept_loop(
     listener: TcpListener,
     hub: Arc<Hub>,
@@ -505,8 +486,6 @@ async fn run_accept_loop(
     info!("WebSocket accept loop stopped");
 }
 
-// ─── Metrics HTTP server ──────────────────────────────────────────────────────
-
 async fn run_metrics_server(
     metrics: Arc<Metrics>,
     port: u16,
@@ -561,8 +540,6 @@ async fn run_metrics_server(
         .await
         .map_err(|e| error::WsError::HttpServer(e.to_string()))
 }
-
-// ─── Shutdown signal ──────────────────────────────────────────────────────────
 
 async fn shutdown_signal() {
     let ctrl_c = async {

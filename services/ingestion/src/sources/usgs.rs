@@ -29,8 +29,6 @@ use crate::sources::{normalise_mag_type, usgs_quality, validate_coordinates};
 
 const SOURCE_NAME: &str = "USGS";
 
-// ─── Serde shapes ────────────────────────────────────────────────────────────
-
 #[derive(Deserialize)]
 struct FeatureCollection {
     features: Vec<Feature>,
@@ -60,8 +58,6 @@ struct Geometry {
     /// [longitude, latitude, depth_km]
     coordinates: Vec<f64>,
 }
-
-// ─── Source implementation ────────────────────────────────────────────────────
 
 pub struct UsgsSource {
     client: reqwest::Client,
@@ -169,8 +165,6 @@ impl SeismicSource for UsgsSource {
     }
 }
 
-// ─── Feature parser ───────────────────────────────────────────────────────────
-
 fn parse_feature(
     feature: Feature,
     ingested_at_ms: i64,
@@ -207,7 +201,6 @@ fn parse_feature(
             event_id: event_id.clone(),
         })?;
 
-    // geometry.coordinates = [lon, lat, depth_km]
     let coords = &feature.geometry.coordinates;
     if coords.len() < 2 {
         return Err(ParseError::InvalidField {
@@ -229,7 +222,6 @@ fn parse_feature(
     let quality_indicator = usgs_quality(feature.properties.status.as_deref()).to_owned();
     let source_id = format!("USGS:{}", event_id);
 
-    // Serialise the original properties to JSON for the raw_payload field.
     let raw_payload = serde_json::json!({
         "id": feature.id,
         "mag": magnitude,

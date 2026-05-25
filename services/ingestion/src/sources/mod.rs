@@ -29,8 +29,6 @@ pub trait SeismicSource: Send + Sync {
     ) -> Result<Vec<RawEarthquakeEvent>, crate::error::IngestError>;
 }
 
-// ─── Shared parsing helpers ───────────────────────────────────────────────────
-
 /// Normalise a magnitude type string to uppercase.
 ///
 /// Sources are inconsistent: USGS uses "mb", "ml"; EMSC uses "ML", "mb".
@@ -121,14 +119,10 @@ pub fn validate_coordinates(
     Ok(())
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
-
-    // ── normalise_mag_type ────────────────────────────────────────────────
 
     #[test]
     fn normalise_mag_type_uppercases_lowercase() {
@@ -147,8 +141,6 @@ mod tests {
         assert_eq!(normalise_mag_type("ML"), "ML");
         assert_eq!(normalise_mag_type("UNKNOWN"), "UNKNOWN");
     }
-
-    // ── usgs_quality ─────────────────────────────────────────────────────
 
     #[test]
     fn usgs_quality_reviewed_is_a() {
@@ -170,8 +162,6 @@ mod tests {
         assert_eq!(usgs_quality(Some("preliminary")), "D");
     }
 
-    // ── emsc_quality ─────────────────────────────────────────────────────
-
     #[test]
     fn emsc_quality_ke_is_c() {
         assert_eq!(emsc_quality(Some("ke")), "C");
@@ -182,8 +172,6 @@ mod tests {
         assert_eq!(emsc_quality(Some("se")), "D");
         assert_eq!(emsc_quality(None), "D");
     }
-
-    // ── validate_coordinates ──────────────────────────────────────────────
 
     #[test]
     fn valid_coordinates_accepted() {
@@ -237,8 +225,6 @@ mod tests {
     fn inf_lon_rejected() {
         assert!(validate_coordinates(0.0, f64::INFINITY, "T", "e").is_err());
     }
-
-    // ── proptest: coordinate bounds ────────────────────────────────────────
 
     proptest! {
         #[test]

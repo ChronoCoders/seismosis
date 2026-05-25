@@ -41,7 +41,6 @@ const WS_URL =
 const MAX_EVENTS = 100;
 const MAX_ALERTS = 10;
 
-// Turkey bounding box for the filter toggle
 const TURKEY_BBOX = { minLon: 25, maxLon: 45, minLat: 35, maxLat: 43 };
 
 function inTurkey(e: DisplayEvent) {
@@ -53,8 +52,6 @@ function inTurkey(e: DisplayEvent) {
   );
 }
 
-// ── Derived stats from BandStats ──────────────────────────────────────────────
-
 function derivedStats(bands: BandStats[]) {
   const total24h  = bands.reduce((s, b) => s + b.count_24h, 0);
   const total1h   = bands.reduce((s, b) => s + b.count_1h,  0);
@@ -62,8 +59,6 @@ function derivedStats(bands: BandStats[]) {
   const rate24h   = total24h > 0 ? total24h / 24 : 0;
   return { total24h, total1h, maxMag24h, rate24h };
 }
-
-// ── Risk indicator from bands ─────────────────────────────────────────────────
 
 function riskFromBands(bands: BandStats[]): { color: string; label: string } {
   const m = Object.fromEntries(bands.map((b) => [b.band, b]));
@@ -75,8 +70,6 @@ function riskFromBands(bands: BandStats[]): { color: string; label: string } {
     return { color: '#eab308', label: 'AKTİF' };
   return { color: '#22c55e', label: 'NORMAL' };
 }
-
-// ── Top statistics bar ────────────────────────────────────────────────────────
 
 interface StatTileProps {
   label: string;
@@ -155,8 +148,6 @@ function TopStatsBar({
   );
 }
 
-// ── Featured earthquake card (strongest in last 24h) ─────────────────────────
-
 const NETWORK_CHIP_STYLES: Record<string, string> = {
   USGS: 'bg-blue-950/60 text-blue-400 border-blue-800/50',
   EMSC: 'bg-purple-950/60 text-purple-400 border-purple-800/50',
@@ -175,8 +166,7 @@ function NetworkChip({ network }: { network: string }) {
 }
 
 function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
-  // Compute directly — no useMemo so the result is always in sync with the
-  // current `events` prop (which is already filtered by the Turkey toggle).
+  // No useMemo: result must stay in sync with the filtered `events` prop.
   const cutoff = Date.now() - 24 * 3_600_000;
   const recent = events.filter(
     (e) => new Date(e.event_time).getTime() > cutoff,
@@ -206,7 +196,6 @@ function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
         className={`block rounded border ${info.borderClass} ${info.bgClass} px-3 py-2.5 hover:brightness-110 transition-all`}
       >
         <div className="flex items-start gap-3">
-          {/* Large magnitude */}
           <div className="shrink-0">
             <div className={`text-3xl font-bold font-mono leading-none ${info.textClass}`}>
               {formatMagnitude(displayMag)}
@@ -215,7 +204,6 @@ function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
               {info.label}
             </div>
           </div>
-          {/* Details */}
           <div className="flex-1 min-w-0">
             <p
               className="text-sm font-semibold text-text-primary leading-tight truncate"
@@ -240,8 +228,6 @@ function FeaturedEarthquakeCard({ events }: { events: DisplayEvent[] }) {
     </div>
   );
 }
-
-// ── Right panel ───────────────────────────────────────────────────────────────
 
 const ALERT_LEVEL_STYLES: Record<string, { bg: string; text: string; border: string }> = {
   RED:    { bg: 'bg-red-950/70',    text: 'text-mag-red',    border: 'border-mag-red/40' },
@@ -391,8 +377,6 @@ function RightStatsPanel({
   );
 }
 
-// ── Turkey filter toggle button ───────────────────────────────────────────────
-
 function TurkeyFilterToggle({
   active,
   onToggle,
@@ -414,7 +398,6 @@ function TurkeyFilterToggle({
         }
       `}
     >
-      {/* Simple map-pin icon */}
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
         <circle cx="5" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.2" />
         <path
@@ -432,7 +415,34 @@ function TurkeyFilterToggle({
   );
 }
 
-// ── Tab navigation ────────────────────────────────────────────────────────────
+function MagnitudeFilterSlider({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-border bg-bg/80 backdrop-blur-sm">
+      <span className="text-[10px] font-bold tracking-widest text-text-muted whitespace-nowrap">
+        M ≥
+      </span>
+      <span className="text-[10px] font-bold font-mono text-text-primary w-6 text-center tabular-nums">
+        {value.toFixed(1)}
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={7}
+        step={0.5}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-24 h-1 accent-accent cursor-pointer"
+        aria-label="Minimum büyüklük filtresi"
+      />
+    </div>
+  );
+}
 
 type TabId = 'overview' | 'realtime' | 'history' | 'compare';
 
@@ -469,24 +479,26 @@ function TabBar({
   );
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
-
 export function Dashboard() {
-  const [activeTab, setActiveTab]     = useState<TabId>('overview');
-  const [events, setEvents]           = useState<DisplayEvent[]>([]);
-  const [bands, setBands]             = useState<BandStats[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [alerts, setAlerts]           = useState<AlertEvent[]>([]);
-  const [loading, setLoading]         = useState(true);
+  const [activeTab, setActiveTab]       = useState<TabId>('overview');
+  const [events, setEvents]             = useState<DisplayEvent[]>([]);
+  const [bands, setBands]               = useState<BandStats[]>([]);
+  const [lastUpdated, setLastUpdated]   = useState<Date | null>(null);
+  const [alerts, setAlerts]             = useState<AlertEvent[]>([]);
+  const [loading, setLoading]           = useState(true);
   const [filterTurkey, setFilterTurkey] = useState(false);
+  const [minMagnitude, setMinMagnitude] = useState(0.0);
 
-  // ── Filtered events (Turkey bbox or all) ───────────────────────────────────
-  const filteredEvents = useMemo(
+  const geoFiltered = useMemo(
     () => (filterTurkey ? events.filter(inTurkey) : events),
     [events, filterTurkey],
   );
 
-  // ── Initial REST load ─────────────────────────────────────────────────────
+  const filteredEvents = useMemo(
+    () => geoFiltered.filter((e) => (e.ml_magnitude ?? e.magnitude) >= minMagnitude),
+    [geoFiltered, minMagnitude],
+  );
+
   const loadData = useCallback(async () => {
     try {
       const [listResp, statsResp] = await Promise.all([
@@ -513,8 +525,13 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  // ── WebSocket ─────────────────────────────────────────────────────────────
-  const { status: wsStatus, lastMessage } = useWebSocket(WS_URL);
+  const { status: wsStatus, lastMessage, send } = useWebSocket(WS_URL);
+
+  // Sync the server-side subscription filter on connect and whenever it changes.
+  useEffect(() => {
+    if (wsStatus !== 'connected') return;
+    send(JSON.stringify({ type: 'subscribe', min_magnitude: minMagnitude }));
+  }, [wsStatus, minMagnitude, send]);
 
   useEffect(() => {
     if (!lastMessage) return;
@@ -540,41 +557,30 @@ export function Dashboard() {
 
   const risk = riskFromBands(bands);
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-bg">
 
-      {/* ── Top header bar ── */}
       <Header wsStatus={wsStatus} lastUpdated={lastUpdated} />
-
-      {/* ── Tab navigation bar ── */}
       <TabBar active={activeTab} onChange={setActiveTab} />
 
-      {/* ── Tab content ── */}
       {activeTab === 'realtime' && (
         <RealtimeTab events={events} wsStatus={wsStatus} />
       )}
 
-      {activeTab === 'history' && (
-        <HistoryTab />
-      )}
+      {activeTab === 'history' && <HistoryTab />}
 
-      {activeTab === 'compare' && (
-        <CompareTab />
-      )}
+      {activeTab === 'compare' && <CompareTab />}
 
       {activeTab === 'overview' && (
         <>
-          {/* ── Statistics strip — always shows global (unfiltered) band stats ── */}
           <TopStatsBar bands={bands} events={events} />
 
-          {/* ── Three-column body ── */}
-          <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Three-column body: stacks vertically on mobile, side-by-side on md+ */}
+          <div className="flex flex-col md:flex-row flex-1 md:min-h-0 overflow-y-auto md:overflow-hidden">
 
-            {/* ── Left sidebar ── */}
-            <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-r border-border bg-surface">
+            {/* Left sidebar — shows second on mobile (below map) */}
+            <aside className="w-full md:w-[268px] md:shrink-0 flex flex-col md:min-h-0 border-b md:border-b-0 md:border-r border-border bg-surface order-2 md:order-none">
 
-              {/* Sidebar header */}
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
                 <div className="flex items-center gap-2">
                   <span
@@ -600,31 +606,31 @@ export function Dashboard() {
                 </span>
               </div>
 
-              {/* Featured strongest earthquake card */}
               <FeaturedEarthquakeCard events={filteredEvents} />
 
-              {/* Divider between featured and list */}
               {filteredEvents.some(
                 (e) => new Date(e.event_time).getTime() > Date.now() - 24 * 3_600_000,
               ) && (
                 <div className="mx-3 border-t border-border/40 shrink-0" />
               )}
 
-              {/* Scrollable event list */}
               <div className="overflow-y-auto flex-1 overscroll-contain">
                 <EarthquakeList events={filteredEvents.slice(0, 50)} />
               </div>
 
             </aside>
 
-            {/* ── Center: dominant map ── */}
-            <main className="flex-1 min-h-0 min-w-0 relative">
+            {/* Center map — shows first on mobile with a fixed min-height */}
+            <main className="min-h-[300px] h-[55vw] md:h-auto md:flex-1 md:min-h-0 min-w-0 relative order-1 md:order-none">
 
-              {/* Turkey filter toggle — overlaid top-left of map */}
-              <div className="absolute top-3 left-3 z-10">
+              <div className="absolute top-3 left-3 z-10 flex flex-col gap-2">
                 <TurkeyFilterToggle
                   active={filterTurkey}
                   onToggle={() => setFilterTurkey((f) => !f)}
+                />
+                <MagnitudeFilterSlider
+                  value={minMagnitude}
+                  onChange={setMinMagnitude}
                 />
               </div>
 
@@ -637,8 +643,8 @@ export function Dashboard() {
               )}
             </main>
 
-            {/* ── Right panel: stats + chart + alerts ── */}
-            <aside className="w-[268px] shrink-0 flex flex-col min-h-0 border-l border-border bg-surface">
+            {/* Right panel — hidden on mobile */}
+            <aside className="hidden md:flex md:w-[268px] md:shrink-0 flex-col md:min-h-0 border-l border-border bg-surface order-3 md:order-none">
               {bands.length === 0 ? (
                 <div className="flex items-center justify-center flex-1 text-text-muted text-sm">
                   Yükleniyor…

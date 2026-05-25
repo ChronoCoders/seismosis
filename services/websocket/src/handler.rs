@@ -34,8 +34,6 @@ use crate::filter::SubscriptionFilter;
 use crate::hub::Hub;
 use crate::metrics::Metrics;
 
-// ─── Connection handler ───────────────────────────────────────────────────────
-
 pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
@@ -131,12 +129,10 @@ pub async fn handle_connection(
         return;
     }
 
-    // ── Main event loop ───────────────────────────────────────────────────
     let close_reason = loop {
         tokio::select! {
             biased;
 
-            // ── Shutdown signal ───────────────────────────────────────────
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
                     let _ = ws_write
@@ -149,7 +145,6 @@ pub async fn handle_connection(
                 }
             }
 
-            // ── Outbound: hub → client ────────────────────────────────────
             msg = rx.recv() => {
                 match msg {
                     None => {
@@ -191,7 +186,6 @@ pub async fn handle_connection(
                 }
             }
 
-            // ── Inbound: client → hub ─────────────────────────────────────
             incoming = ws_read.next() => {
                 match incoming {
                     None | Some(Err(_)) => break "client_close",
@@ -223,8 +217,6 @@ pub async fn handle_connection(
         "WebSocket client disconnected",
     );
 }
-
-// ─── Client → server control messages ────────────────────────────────────────
 
 async fn handle_client_message(text: &str, client_id: Uuid, hub: &Hub) {
     #[derive(serde::Deserialize)]

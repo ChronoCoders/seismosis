@@ -483,7 +483,7 @@ services:
       KAFKA_BROKERS: "redpanda:9092"
       KAFKA_TOPIC_ENRICHED: "earthquakes.enriched"
       KAFKA_TOPIC_ALERTS: "earthquakes.alerts"
-      KAFKA_GROUP_ID: "seismosis-websocket"
+      KAFKA_GROUP_ID: "seismosis-ws-group"
       SCHEMA_REGISTRY_URL: "http://redpanda:8081"
       WS_PORT: "9093"
       METRICS_PORT: "9094"

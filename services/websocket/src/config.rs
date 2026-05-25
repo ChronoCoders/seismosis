@@ -42,7 +42,7 @@ impl Config {
             kafka_brokers: var_str("KAFKA_BROKERS", "redpanda:9092"),
             kafka_topic_enriched: var_str("KAFKA_TOPIC_ENRICHED", "earthquakes.enriched"),
             kafka_topic_alerts: var_str("KAFKA_TOPIC_ALERTS", "earthquakes.alerts"),
-            kafka_group_id: var_str("KAFKA_GROUP_ID", "seismosis-websocket"),
+            kafka_group_id: var_str("KAFKA_GROUP_ID", "seismosis-ws-group"),
             schema_registry_url: var_str("SCHEMA_REGISTRY_URL", "http://redpanda:8081"),
             ws_port: var_u16("WS_PORT", 9093)?,
             metrics_port: var_u16("METRICS_PORT", 9094)?,
@@ -51,8 +51,6 @@ impl Config {
         })
     }
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn var_str(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_owned())

@@ -22,8 +22,6 @@ mod tests {
         schema::{RawEarthquakeEvent, AVRO_SCHEMA},
     };
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
-
     fn test_event(source_id: &str) -> RawEarthquakeEvent {
         RawEarthquakeEvent {
             source_id: source_id.to_owned(),
@@ -120,8 +118,6 @@ mod tests {
         }
     }
 
-    // ─── Tests ───────────────────────────────────────────────────────────────
-
     /// Verify the Redis-backed dedup protocol with a real Redis instance.
     ///
     /// Exercises the full check-then-mark sequence documented on `Deduplicator`.
@@ -160,7 +156,6 @@ mod tests {
     /// After a successful produce, the event must be flagged as a duplicate.
     #[tokio::test]
     async fn produce_and_dedup_full_protocol() {
-        // ── Containers ────────────────────────────────────────────────────
         let kafka = Kafka::default()
             .start()
             .await
@@ -181,11 +176,9 @@ mod tests {
             .expect("Failed to get Redis port");
         let redis_url = format!("redis://127.0.0.1:{}", redis_port);
 
-        // ── Topic setup ───────────────────────────────────────────────────
         let topic = "int-earthquakes-raw";
         create_topic(&brokers, topic).await;
 
-        // ── Service objects ───────────────────────────────────────────────
         let dedup = Deduplicator::new(&redis_url, 60).await;
         let config = test_config(&brokers, topic);
         let metrics = Metrics::new().expect("Failed to create metrics");
@@ -195,25 +188,20 @@ mod tests {
 
         let event = test_event("USGS:int_produce_001");
 
-        // ── Step 1: check (read-only) ─────────────────────────────────────
         assert!(
             !dedup.is_duplicate(&event.source_id).await,
             "Event must not be a duplicate before first produce"
         );
 
-        // ── Step 2: encode ────────────────────────────────────────────────
         let payload = encoder.encode(&event).expect("Avro encoding failed");
 
-        // ── Step 3: produce ───────────────────────────────────────────────
         producer
             .send(&event.source_id, payload)
             .await
             .expect("Kafka produce failed");
 
-        // ── Step 4: mark seen (only after successful produce) ─────────────
         dedup.mark_seen(&event.source_id).await;
 
-        // ── Verify: event is now a duplicate ──────────────────────────────
         assert!(
             dedup.is_duplicate(&event.source_id).await,
             "Event must be a duplicate after produce + mark_seen"

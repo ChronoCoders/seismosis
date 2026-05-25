@@ -107,7 +107,6 @@ def magnitude_uncertainty(
     return 0.1  # passthrough — no conversion applied
 
 
-# ─── Internal helpers ──────────────────────────────────────────────────────────
 
 def _depth_correct_ml(magnitude: float, depth_km: float) -> tuple[float, str]:
     """

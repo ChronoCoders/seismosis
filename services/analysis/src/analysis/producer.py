@@ -100,7 +100,6 @@ class KafkaProducer:
         self._producer.flush(timeout=30)
         self._dlq_producer.flush(timeout=5)
 
-    # ── Internal helper ────────────────────────────────────────────────────
 
     @staticmethod
     def _produce_sync(

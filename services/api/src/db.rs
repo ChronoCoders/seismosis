@@ -305,14 +305,10 @@ pub async fn get_stats(pool: &PgPool) -> Result<Vec<BandStats>, RequestError> {
     Ok(result)
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::EventsQuery;
-
-    // ── Band boundary tests ───────────────────────────────────────────────────
 
     /// Every adjacent pair of bands must share a boundary (max[n] == min[n+1])
     /// so there are no gaps or overlaps in the magnitude space.
@@ -367,8 +363,6 @@ mod tests {
         assert_eq!(major.min, 8.0);
         assert!(major.max.is_none());
     }
-
-    // ── QueryBuilder SQL tests ────────────────────────────────────────────────
 
     fn empty_query() -> EventsQuery {
         EventsQuery {

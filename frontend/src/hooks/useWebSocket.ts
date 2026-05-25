@@ -8,6 +8,7 @@ export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 export interface UseWebSocketResult {
   status: WsStatus;
   lastMessage: WsMessage | null;
+  send: (data: string) => void;
 }
 
 const RECONNECT_DELAY_MS = 5_000;
@@ -62,6 +63,12 @@ export function useWebSocket(url: string): UseWebSocketResult {
     };
   }, [url]);
 
+  const send = useCallback((data: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(data);
+    }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     connect();
@@ -72,5 +79,5 @@ export function useWebSocket(url: string): UseWebSocketResult {
     };
   }, [connect]);
 
-  return { status, lastMessage };
+  return { status, lastMessage, send };
 }

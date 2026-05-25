@@ -30,11 +30,8 @@ use dead_letter::DlqProducer;
 use metrics::Metrics;
 use registry::SchemaRegistryClient;
 
-// ─── Entry point ──────────────────────────────────────────────────────────────
-
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    // ── Tracing ───────────────────────────────────────────────────────────────
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(fmt::layer().json())
@@ -42,7 +39,6 @@ async fn main() -> anyhow::Result<()> {
 
     info!("seismosis-storage starting");
 
-    // ── Config ────────────────────────────────────────────────────────────────
     let config = Config::from_env().map_err(|e| anyhow::anyhow!("config: {}", e))?;
     info!(
         kafka_brokers = %config.kafka_brokers,
@@ -52,13 +48,11 @@ async fn main() -> anyhow::Result<()> {
         "Config loaded"
     );
 
-    // ── Database pool ─────────────────────────────────────────────────────────
     let pool = db::create_pool(&config)
         .await
         .map_err(|e| anyhow::anyhow!("db: {}", e))?;
     info!("Database pool established");
 
-    // ── Schema Registry + Avro decoder ───────────────────────────────────────
     let registry_client = SchemaRegistryClient::new(config.schema_registry_url.clone())
         .map_err(|e| anyhow::anyhow!("schema registry: {}", e))?;
     // Wrap in Arc so a future parallel-consumer refactor can share the decoder
@@ -66,19 +60,16 @@ async fn main() -> anyhow::Result<()> {
     // so the only cost today is one extra heap allocation.
     let decoder = Arc::new(AvroDecoder::new(registry_client));
 
-    // ── Prometheus metrics ────────────────────────────────────────────────────
     let prom_registry = Registry::new();
     let metrics =
         Arc::new(Metrics::new(&prom_registry).map_err(|e| anyhow::anyhow!("metrics: {}", e))?);
 
-    // ── DLQ producer ──────────────────────────────────────────────────────────
     let dlq = DlqProducer::new(
         &config.kafka_brokers,
         config.kafka_topic_dead_letter.clone(),
     )
     .map_err(|e| anyhow::anyhow!("dlq producer: {}", e))?;
 
-    // ── Kafka consumer ────────────────────────────────────────────────────────
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", &config.kafka_brokers)
         .set("group.id", &config.kafka_group_id)
@@ -99,10 +90,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!(topic = %config.kafka_topic_raw, "Subscribed to topic");
 
-    // ── Graceful shutdown channel ─────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // ── Metrics HTTP server ───────────────────────────────────────────────────
     let metrics_handle = {
         let shutdown_rx = shutdown_rx.clone();
         tokio::spawn(run_metrics_server(
@@ -112,7 +101,6 @@ async fn main() -> anyhow::Result<()> {
         ))
     };
 
-    // ── Consume loop ──────────────────────────────────────────────────────────
     let consume_handle = {
         let metrics = Arc::clone(&metrics);
         let topic = config.kafka_topic_raw.clone();
@@ -121,7 +109,6 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    // ── Shutdown signal ───────────────────────────────────────────────────────
     match tokio::signal::ctrl_c().await {
         Ok(()) => info!("Received Ctrl-C, initiating graceful shutdown"),
         Err(e) => error!(error = %e, "Failed to listen for shutdown signal"),
@@ -142,8 +129,6 @@ async fn main() -> anyhow::Result<()> {
     info!("seismosis-storage stopped");
     Ok(())
 }
-
-// ─── Consume loop ─────────────────────────────────────────────────────────────
 
 async fn consume_loop(
     consumer: StreamConsumer,
@@ -278,27 +263,20 @@ async fn consume_loop(
     info!("Consume loop exiting");
 }
 
-// ─── Single-message processing ────────────────────────────────────────────────
-
 async fn process_message(
     payload: &[u8],
     decoder: &AvroDecoder,
     pool: &sqlx::PgPool,
     metrics: &Metrics,
 ) -> Result<(), error::ProcessError> {
-    // 1. Decode Confluent Avro wire format.
     let raw = decoder.decode(payload).await?;
 
-    // 2. Validate fields (coordinate ranges, magnitude bounds, quality char).
     let event = raw.validate()?;
 
-    // 3. Upsert to PostgreSQL.
     db::upsert_event(pool, &event, metrics).await?;
 
     Ok(())
 }
-
-// ─── Metrics HTTP server ──────────────────────────────────────────────────────
 
 async fn run_metrics_server(registry: Registry, port: u16, mut shutdown: watch::Receiver<bool>) {
     let registry = Arc::new(registry);

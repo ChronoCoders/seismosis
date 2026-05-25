@@ -130,7 +130,6 @@ impl Deduplicator {
     /// On Redis failure, assumes *not* duplicate so the event is not silently
     /// dropped.
     pub async fn is_duplicate(&self, source_id: &str) -> bool {
-        // ── Fast path: in-memory LRU (O(1), no network) ──────────────────
         // `peek` is used intentionally — it does not update LRU recency order,
         // keeping this a pure read.
         {
@@ -141,7 +140,6 @@ impl Deduplicator {
             }
         }
 
-        // ── Durable path: Redis EXISTS ────────────────────────────────────
         match &self.conn {
             Some(conn) => {
                 let key = format!("{}{}", KEY_PREFIX, source_id);

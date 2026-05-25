@@ -18,8 +18,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ─── Enriched earthquake event ────────────────────────────────────────────────
-
 /// Decoded from the `earthquakes.enriched` Avro topic.
 ///
 /// Field names match the Avro schema exactly (`earthquakes.enriched-value`)
@@ -57,8 +55,6 @@ pub struct EnrichedEvent {
     pub analysis_version: String,
 }
 
-// ─── Alert event ──────────────────────────────────────────────────────────────
-
 /// Decoded from the `earthquakes.alerts` Avro topic.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AlertEvent {
@@ -76,8 +72,6 @@ pub struct AlertEvent {
     pub alert_level: String,
     pub triggered_at_ms: i64,
 }
-
-// ─── Server → client message ──────────────────────────────────────────────────
 
 /// The message type sent to WebSocket clients.
 ///

@@ -27,7 +27,6 @@ impl AvroDecoder {
 
     /// Decode a Confluent-framed payload into `RawFields`.
     pub async fn decode(&self, payload: &[u8]) -> Result<RawFields, ProcessError> {
-        // ── Wire header ───────────────────────────────────────────────────────
         if payload.len() < WIRE_HEADER_LEN {
             return Err(ProcessError::InvalidWireHeader(format!(
                 "payload is {} bytes, minimum is {}",
@@ -47,18 +46,14 @@ impl AvroDecoder {
 
         debug!(schema_id, datum_bytes = datum.len(), "Decoding Avro datum");
 
-        // ── Schema lookup ─────────────────────────────────────────────────────
         let schema = self.registry.get_schema(schema_id).await?;
 
-        // ── Avro decode ───────────────────────────────────────────────────────
         let value = from_avro_datum(&schema, &mut Cursor::new(datum), None)
             .map_err(|e| ProcessError::AvroDecode(e.to_string()))?;
 
         extract_fields(value)
     }
 }
-
-// ─── Field extraction ─────────────────────────────────────────────────────────
 
 fn extract_fields(value: Value) -> Result<RawFields, ProcessError> {
     let fields = match value {
@@ -89,8 +84,6 @@ fn extract_fields(value: Value) -> Result<RawFields, ProcessError> {
         pipeline_version: take_string(&mut map, "pipeline_version")?,
     })
 }
-
-// ─── Typed field accessors ────────────────────────────────────────────────────
 
 fn take_string(
     map: &mut HashMap<String, Value>,

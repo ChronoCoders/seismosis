@@ -59,7 +59,6 @@ from .risk import alert_level, estimate_epicentral_mmi, estimate_felt_radius_km
 from .schema import ALERT_SCHEMA, ALERT_SUBJECT, ENRICHED_SCHEMA, ENRICHED_SUBJECT
 
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
 
 def _configure_logging(level: str) -> None:
     structlog.configure(
@@ -77,7 +76,6 @@ def _configure_logging(level: str) -> None:
     )
 
 
-# ─── Metrics HTTP server ──────────────────────────────────────────────────────
 
 def _start_metrics_server(port: int, prom_registry: CollectorRegistry) -> HTTPServer:
     """
@@ -111,7 +109,6 @@ def _start_metrics_server(port: int, prom_registry: CollectorRegistry) -> HTTPSe
     return server
 
 
-# ─── Per-message processing ───────────────────────────────────────────────────
 
 def process_message(
     raw_bytes: bytes,
@@ -137,7 +134,6 @@ def process_message(
     """
     source_id: Optional[str] = None
 
-    # ── 1. Avro decode ────────────────────────────────────────────────────
     try:
         record = decoder.decode(raw_bytes)
         event = RawEvent.from_avro_record(record)
@@ -163,7 +159,6 @@ def process_message(
         metrics.dead_letter_total.labels(failure_reason="avro_decode_error").inc()
         return
 
-    # ── 2. ML magnitude refinement ────────────────────────────────────────
     ml_magnitude, ml_source = refine_to_ml(
         event.magnitude, event.magnitude_type, event.depth_km
     )
@@ -171,7 +166,6 @@ def process_message(
         magnitude_type=event.magnitude_type
     ).observe(ml_magnitude - event.magnitude)
 
-    # ── 3. ETAS aftershock detection ──────────────────────────────────────
     is_aftershock = False
     mainshock_source_id: Optional[str] = None
     mainshock_magnitude: Optional[float] = None
@@ -208,7 +202,6 @@ def process_message(
     finally:
         db.put_conn(conn)
 
-    # ── 4. Risk estimation ────────────────────────────────────────────────
     felt_radius = estimate_felt_radius_km(ml_magnitude, event.depth_km)
     mmi = estimate_epicentral_mmi(ml_magnitude, event.depth_km)
     level = alert_level(ml_magnitude)
@@ -242,7 +235,6 @@ def process_message(
         analysis_version=config.analysis_version,
     )
 
-    # ── 5. Produce enriched event ─────────────────────────────────────────
     try:
         payload = enriched_encoder.encode(enriched.to_avro_record())
         producer.produce_enriched(
@@ -273,7 +265,6 @@ def process_message(
         metrics.dead_letter_total.labels(failure_reason="enriched_produce_error").inc()
         return
 
-    # ── 6. Alert (M ≥ threshold) ──────────────────────────────────────────
     if level is not None and ml_magnitude >= config.alert_magnitude_threshold:
         alert_event = AlertEvent(
             source_id=enriched.source_id,
@@ -312,14 +303,12 @@ def process_message(
                 error=str(exc),
             )
 
-    # ── 7. PostgreSQL upsert (non-fatal) ──────────────────────────────────
     try:
         db.upsert_enriched_event(enriched)
     except Exception as exc:
         logger.error("db_write_error", source_id=source_id, error=str(exc))
         metrics.db_write_errors_total.inc()
 
-    # ── 8. Redis cache (non-fatal) ────────────────────────────────────────
     if not cache.set_event(enriched, ttl_secs=config.event_cache_ttl_secs):
         metrics.cache_write_errors_total.inc()
 
@@ -334,7 +323,6 @@ def process_message(
     )
 
 
-# ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main() -> None:
     config = Config.from_env()
@@ -343,7 +331,6 @@ def main() -> None:
 
     log.info("seismosis-analysis starting", version=config.analysis_version)
 
-    # ── Schema Registry + Avro setup ──────────────────────────────────────
     registry = SchemaRegistry(config.schema_registry_url)
 
     log.info("registering_schemas")
@@ -361,7 +348,6 @@ def main() -> None:
     enriched_encoder = AvroEncoder(enriched_parsed, enriched_schema_id)
     alert_encoder = AvroEncoder(alert_parsed, alert_schema_id)
 
-    # ── Infrastructure ─────────────────────────────────────────────────────
     db = Database(config.database_url, config.db_pool_min, config.db_pool_max)
     cache = Cache(config.redis_url)
     consumer = KafkaConsumer(
@@ -369,13 +355,11 @@ def main() -> None:
     )
     producer = KafkaProducer(config.kafka_brokers)
 
-    # ── Prometheus ─────────────────────────────────────────────────────────
     prom_registry = CollectorRegistry()
     metrics = Metrics(prom_registry)
     _start_metrics_server(config.metrics_port, prom_registry)
     log.info("metrics_server_started", port=config.metrics_port)
 
-    # ── Graceful shutdown ──────────────────────────────────────────────────
     shutdown = threading.Event()
 
     def _handle_signal(sig: int, _frame: object) -> None:
@@ -391,7 +375,6 @@ def main() -> None:
         group=config.kafka_group_id,
     )
 
-    # ── Consume loop ───────────────────────────────────────────────────────
     while not shutdown.is_set():
         msg = consumer.poll(timeout=1.0)
         if msg is None:
@@ -449,7 +432,6 @@ def main() -> None:
             # Always commit — DLQ is the safety net for unprocessable messages.
             consumer.commit(msg)
 
-    # ── Drain and close ────────────────────────────────────────────────────
     log.info("shutting_down")
     consumer.close()
     producer.close()

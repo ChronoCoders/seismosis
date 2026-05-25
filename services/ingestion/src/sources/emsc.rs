@@ -34,8 +34,6 @@ use crate::sources::{emsc_quality, normalise_mag_type, validate_coordinates};
 
 const SOURCE_NAME: &str = "EMSC";
 
-// ─── Serde shapes ────────────────────────────────────────────────────────────
-
 #[derive(Deserialize)]
 struct FeatureCollection {
     features: Vec<Feature>,
@@ -63,8 +61,6 @@ struct Properties {
     /// Stable EMSC identifier. Prefer over `feature.id` for dedup key.
     unid: Option<String>,
 }
-
-// ─── Source implementation ────────────────────────────────────────────────────
 
 pub struct EmscSource {
     client: reqwest::Client,
@@ -192,8 +188,6 @@ impl SeismicSource for EmscSource {
     }
 }
 
-// ─── Feature parser ───────────────────────────────────────────────────────────
-
 fn parse_feature(
     feature: Feature,
     ingested_at_ms: i64,
@@ -217,7 +211,6 @@ fn parse_feature(
             event_id: event_id.clone(),
         })?;
 
-    // EMSC uses ISO-8601 with fractional seconds (e.g. "2024-01-01T05:22:54.5Z").
     let event_time_ms = parse_iso8601_ms(time_str).map_err(|detail| ParseError::InvalidField {
         field: "time",
         src: SOURCE_NAME,
@@ -247,7 +240,6 @@ fn parse_feature(
 
     let quality_indicator = emsc_quality(props.evtype.as_deref()).to_owned();
 
-    // Prefer `unid` as the stable identifier; fall back to the feature-level id.
     let stable_id = props
         .unid
         .as_deref()
@@ -286,8 +278,6 @@ fn parse_feature(
     })
 }
 
-// ─── Timestamp helper ─────────────────────────────────────────────────────────
-
 /// Parse an ISO-8601 UTC timestamp string into Unix epoch milliseconds.
 ///
 /// Handles both `2024-01-01T05:22:54Z` and `2024-01-01T05:22:54.5Z`.
@@ -297,8 +287,6 @@ fn parse_iso8601_ms(s: &str) -> Result<i64, String> {
         .map(|dt| dt.timestamp_millis())
         .map_err(|e| format!("'{}' is not valid RFC-3339: {}", s, e))
 }
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

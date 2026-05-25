@@ -11,15 +11,12 @@ use crate::{
     routes::AppState,
 };
 
-// ─── Input validation ─────────────────────────────────────────────────────────
-
 /// Validate all query parameters and return a `RequestError` for the first
 /// violation found.
 ///
 /// Extracted from the handler so that the logic can be unit-tested without
 /// an Axum runtime or AppState.
 pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestError> {
-    // ── NaN / Infinity guards ─────────────────────────────────────────────────
     // All six float parameters must be finite. NaN comparisons silently return
     // false, which bypasses every range check below and passes a PostgreSQL NaN
     // to the query, where `magnitude >= NaN` returns zero rows with no error.
@@ -41,7 +38,6 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
         }
     }
 
-    // ── Magnitude range ───────────────────────────────────────────────────────
     if let (Some(min), Some(max)) = (query.min_magnitude, query.max_magnitude) {
         if min > max {
             return Err(RequestError::BadParam {
@@ -51,7 +47,6 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
         }
     }
 
-    // ── Time range ────────────────────────────────────────────────────────────
     if let (Some(start), Some(end)) = (query.start_time, query.end_time) {
         if start > end {
             return Err(RequestError::BadParam {
@@ -65,7 +60,6 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
         }
     }
 
-    // ── Bounding box ─────────────────────────────────────────────────────────
     // Either all four corners must be present or none. A partial bbox returns
     // 400 rather than silently ignoring the supplied parameters.
     let bbox_provided = [query.min_lat, query.max_lat, query.min_lon, query.max_lon]
@@ -77,7 +71,6 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
     {
         // All four corners are present — validate ranges and ordering.
 
-        // ── Individual coordinate ranges ──────────────────────────────────────
         if !(-90.0..=90.0).contains(&min_lat) {
             return Err(RequestError::BadParam {
                 param: "min_lat",
@@ -103,7 +96,6 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
             });
         }
 
-        // ── Ordering checks ───────────────────────────────────────────────────
         // PostGIS ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat) requires
         // min < max for each axis. A reversed bbox produces an empty result
         // with 200 OK, indistinguishable from a legitimately empty region.
@@ -137,8 +129,6 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
 
     Ok(())
 }
-
-// ─── Handlers ─────────────────────────────────────────────────────────────────
 
 /// List earthquake events with optional filtering and pagination.
 ///
@@ -239,8 +229,6 @@ pub async fn get_event(
     Ok(Json(event))
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,8 +248,6 @@ mod tests {
             max_lon: None,
         }
     }
-
-    // ── NaN / Infinity ────────────────────────────────────────────────────────
 
     #[test]
     fn nan_magnitude_rejected() {
@@ -314,8 +300,6 @@ mod tests {
         ));
     }
 
-    // ── Magnitude ordering ────────────────────────────────────────────────────
-
     #[test]
     fn reversed_magnitude_range_rejected() {
         let err = validate_events_query(&EventsQuery {
@@ -342,8 +326,6 @@ mod tests {
         })
         .expect("equal bounds should be valid");
     }
-
-    // ── Time ordering ─────────────────────────────────────────────────────────
 
     #[test]
     fn reversed_time_range_rejected() {
@@ -374,8 +356,6 @@ mod tests {
         .expect("equal time bounds should be valid");
     }
 
-    // ── Bounding box completeness ─────────────────────────────────────────────
-
     #[test]
     fn partial_bbox_rejected() {
         let err = validate_events_query(&EventsQuery {
@@ -398,8 +378,6 @@ mod tests {
         })
         .expect("valid bbox should pass");
     }
-
-    // ── Bounding box ordering ─────────────────────────────────────────────────
 
     #[test]
     fn reversed_lat_rejected() {
@@ -458,8 +436,6 @@ mod tests {
         ));
     }
 
-    // ── Out-of-range coordinates ──────────────────────────────────────────────
-
     #[test]
     fn out_of_range_lat_rejected() {
         let err = validate_events_query(&EventsQuery {
@@ -498,14 +474,10 @@ mod tests {
         ));
     }
 
-    // ── Empty query passes ────────────────────────────────────────────────────
-
     #[test]
     fn empty_query_is_valid() {
         validate_events_query(&q()).expect("empty query must pass validation");
     }
-
-    // ── Property-based tests ──────────────────────────────────────────────────
 
     use proptest::prelude::*;
 

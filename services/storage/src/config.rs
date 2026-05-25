@@ -63,8 +63,6 @@ impl Config {
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 fn var_str(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_owned())
 }
