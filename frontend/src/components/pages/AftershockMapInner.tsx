@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import Map, {
   Source,
   Layer,
@@ -66,11 +66,19 @@ interface PopupInfo {
 interface Props {
   events: EarthquakeEvent[];
   forecasts: Map<string, AftershockForecast>;
+  focusSourceId?: string | null;
 }
 
-export default function AftershockMapInner({ events, forecasts }: Props) {
+export default function AftershockMapInner({ events, forecasts, focusSourceId }: Props) {
   const mapRef = useRef<MapRef>(null);
   const [popup, setPopup] = useState<PopupInfo | null>(null);
+
+  useEffect(() => {
+    if (!focusSourceId) return;
+    const ev = events.find((e) => e.source_id === focusSourceId);
+    if (!ev) return;
+    mapRef.current?.flyTo({ center: [ev.longitude, ev.latitude], zoom: 8, duration: 800 });
+  }, [focusSourceId, events]);
 
   const onLoad = useCallback(() => {
     mapRef.current?.fitBounds(TURKEY_BBOX, { padding: 20, duration: 0 });

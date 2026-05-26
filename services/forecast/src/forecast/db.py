@@ -316,6 +316,7 @@ class Database:
         catalog_start: datetime,
         catalog_end: datetime,
         model_version: str,
+        fmd_json: Optional[str] = None,
     ) -> None:
         if grid_cell_wkt is not None:
             query = """
@@ -330,11 +331,12 @@ class Database:
                     catalog_start,
                     catalog_end,
                     model_version,
+                    fmd,
                     computed_at
                 ) VALUES (
                     $1,
                     ST_GeomFromText($2, 4326)::geography,
-                    $3, $4, $5, $6, $7, $8, $9, $10, NOW()
+                    $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, NOW()
                 )
             """
             async with self._pool.acquire() as conn:
@@ -346,6 +348,7 @@ class Database:
                     n_events,
                     catalog_start, catalog_end,
                     model_version,
+                    fmd_json,
                 )
         else:
             query = """
@@ -360,10 +363,11 @@ class Database:
                     catalog_start,
                     catalog_end,
                     model_version,
+                    fmd,
                     computed_at
                 ) VALUES (
                     $1, NULL,
-                    $2, $3, $4, $5, $6, $7, $8, $9, NOW()
+                    $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW()
                 )
             """
             async with self._pool.acquire() as conn:
@@ -374,6 +378,7 @@ class Database:
                     n_events,
                     catalog_start, catalog_end,
                     model_version,
+                    fmd_json,
                 )
 
     async def update_event_classifications(

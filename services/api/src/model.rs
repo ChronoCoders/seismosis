@@ -215,6 +215,10 @@ pub struct GrAnalysisResponse {
     pub catalog_start: DateTime<Utc>,
     pub catalog_end: DateTime<Utc>,
     pub model_version: String,
+    /// Frequency-magnitude distribution `[{magnitude, cumulative_count}, …]` starting at Mc.
+    /// Absent when the forecast service has not computed it yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fmd: Option<serde_json::Value>,
 }
 
 /// GeoJSON FeatureCollection of GR spatial cells for `GET /v1/analysis/gr/map`.
@@ -250,4 +254,8 @@ pub struct EventClassificationResponse {
     /// the classification service has not yet processed this event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub probabilities: Option<serde_json::Value>,
+    /// Names of the 10 features used by the classifier for this prediction.
+    /// `null` when the classification service has not yet processed this event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub features_used: Option<Vec<String>>,
 }

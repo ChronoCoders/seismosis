@@ -593,6 +593,7 @@ struct GrAnalysisRow {
     catalog_start: DateTime<Utc>,
     catalog_end: DateTime<Utc>,
     model_version: String,
+    fmd: Option<serde_json::Value>,
 }
 
 impl From<GrAnalysisRow> for GrAnalysisResponse {
@@ -609,6 +610,7 @@ impl From<GrAnalysisRow> for GrAnalysisResponse {
             catalog_start: r.catalog_start,
             catalog_end: r.catalog_end,
             model_version: r.model_version,
+            fmd: r.fmd,
         }
     }
 }
@@ -629,7 +631,8 @@ pub async fn get_gr_analysis(pool: &PgPool) -> Result<Option<GrAnalysisResponse>
             n_events,
             catalog_start,
             catalog_end,
-            model_version
+            model_version,
+            fmd
         FROM seismology.gr_analysis
         WHERE grid_cell IS NULL
         ORDER BY computed_at DESC
@@ -738,11 +741,33 @@ pub async fn get_event_classification(
         .fetch_optional(pool)
         .await?;
 
-    Ok(row.map(|r| EventClassificationResponse {
-        source_id: r.source_id,
-        event_class: r.event_class,
-        class_confidence: r.class_confidence,
-        probabilities: r.class_probabilities,
+    // The feature set is fixed across all predictions; only populate when the
+    // event has actually been classified to avoid misleading null responses.
+    const FEATURES: &[&str] = &[
+        "magnitude",
+        "depth_km",
+        "depth_mag_ratio",
+        "b_value_local",
+        "inter_event_time_s",
+        "nearest_event_dist_km",
+        "focal_depth_class",
+        "geology_type",
+        "hour_of_day",
+        "magnitude_type_enc",
+    ];
+
+    Ok(row.map(|r| {
+        let features_used = r
+            .event_class
+            .as_ref()
+            .map(|_| FEATURES.iter().map(|s| s.to_string()).collect());
+        EventClassificationResponse {
+            source_id: r.source_id,
+            event_class: r.event_class,
+            class_confidence: r.class_confidence,
+            probabilities: r.class_probabilities,
+            features_used,
+        }
     }))
 }
 

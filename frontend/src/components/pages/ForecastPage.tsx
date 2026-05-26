@@ -62,9 +62,13 @@ function Panel({
 function RecentForecastsList({
   events,
   forecasts,
+  selectedSourceId,
+  onSelect,
 }: {
   events: EarthquakeEvent[];
   forecasts: Map<string, AftershockForecast>;
+  selectedSourceId: string | null;
+  onSelect: (sourceId: string) => void;
 }) {
   const withForecasts = events
     .map((e) => ({ event: e, forecast: forecasts.get(e.source_id) }))
@@ -89,7 +93,12 @@ function RecentForecastsList({
       {withForecasts.map(({ event: ev, forecast: f }) => (
         <div
           key={ev.source_id}
-          className="rounded border border-[#232736] bg-[#12151d] px-3 py-2.5 flex items-start gap-3"
+          onClick={() => onSelect(ev.source_id)}
+          className={`rounded border bg-[#12151d] px-3 py-2.5 flex items-start gap-3 cursor-pointer transition-colors ${
+            selectedSourceId === ev.source_id
+              ? 'border-[#4a90e2] ring-1 ring-[#4a90e2]/30'
+              : 'border-[#232736] hover:border-[#3a4055]'
+          }`}
         >
           {/* Magnitude */}
           <div className="shrink-0 w-12 text-center pt-0.5">
@@ -129,11 +138,27 @@ function RecentForecastsList({
 
 // ── ModelConfidencePanel ──────────────────────────────────────────────────────
 
+const CATALOG_STALE_DAYS = 7;
+
 function ModelConfidencePanel({ gr }: { gr: GrAnalysis | null }) {
   const isRuleBased = !gr;
 
+  const isCatalogStale = gr
+    ? (Date.now() - new Date(gr.catalog_end).getTime()) / 86_400_000 > CATALOG_STALE_DAYS
+    : false;
+
   return (
     <div className="overflow-y-auto h-full p-4 space-y-4">
+      {/* Catalog staleness warning */}
+      {isCatalogStale && (
+        <div className="flex items-start gap-2 rounded border border-orange-700/40 bg-orange-950/20 px-3 py-2">
+          <AlertTriangle size={12} className="text-orange-400 shrink-0 mt-0.5" />
+          <p className="text-[10px] text-orange-300">
+            Katalog güncel değil — son analiz {Math.floor((Date.now() - new Date(gr!.catalog_end).getTime()) / 86_400_000)} gün önce
+          </p>
+        </div>
+      )}
+
       {/* GR Analysis block */}
       <div>
         <p className="text-[9px] font-bold uppercase tracking-widest text-[#575c6e] mb-2">
@@ -214,13 +239,14 @@ const MAG_OPTIONS = [
 ] as const;
 
 export function ForecastPage() {
-  const [loading, setLoading]           = useState(true);
-  const [events, setEvents]             = useState<EarthquakeEvent[]>([]);
-  const [forecasts, setForecasts]       = useState<Map<string, AftershockForecast>>(new Map());
-  const [grAnalysis, setGrAnalysis]     = useState<GrAnalysis | null>(null);
-  const [grMap, setGrMap]               = useState<GrMapResponse | null>(null);
-  const [period, setPeriod]             = useState<number>(30);
-  const [minMag, setMinMag]             = useState<number>(4.0);
+  const [loading, setLoading]               = useState(true);
+  const [events, setEvents]                 = useState<EarthquakeEvent[]>([]);
+  const [forecasts, setForecasts]           = useState<Map<string, AftershockForecast>>(new Map());
+  const [grAnalysis, setGrAnalysis]         = useState<GrAnalysis | null>(null);
+  const [grMap, setGrMap]                   = useState<GrMapResponse | null>(null);
+  const [period, setPeriod]                 = useState<number>(30);
+  const [minMag, setMinMag]                 = useState<number>(4.0);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -327,7 +353,7 @@ export function ForecastPage() {
           subtitle="M≥4.0 olaylar · artçı olasılığına göre renklendirme"
           icon={Activity}
         >
-          <AftershockMapInner events={events} forecasts={forecasts} />
+          <AftershockMapInner events={events} forecasts={forecasts} focusSourceId={selectedSourceId} />
         </Panel>
 
         {/* Top-right: B-Value Map */}
@@ -345,7 +371,12 @@ export function ForecastPage() {
           subtitle="M≥4.0 son olaylar için ETAS çıktısı"
           icon={LineChart}
         >
-          <RecentForecastsList events={events} forecasts={forecasts} />
+          <RecentForecastsList
+            events={events}
+            forecasts={forecasts}
+            selectedSourceId={selectedSourceId}
+            onSelect={setSelectedSourceId}
+          />
         </Panel>
 
         {/* Bottom-right: Model Confidence */}

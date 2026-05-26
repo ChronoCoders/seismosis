@@ -197,6 +197,7 @@ async def run_gr_analysis(
                     catalog_start=global_result.catalog_start,
                     catalog_end=global_result.catalog_end,
                     model_version="gr-aki-utsu-maxcurv-v1",
+                    fmd_json=json.dumps(global_result.fmd),
                 )
                 log.info("gr_analysis.global_written", b=global_result.b_value)
         except Exception as exc:
@@ -248,6 +249,7 @@ async def run_gr_analysis(
                     catalog_start=cell_result.catalog_start,
                     catalog_end=cell_result.catalog_end,
                     model_version="gr-aki-utsu-maxcurv-v1",
+                    fmd_json=json.dumps(cell_result.fmd),
                 )
                 metrics.gr_cells_computed.inc()
 

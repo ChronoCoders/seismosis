@@ -40,11 +40,34 @@ class GrResult:
     n_events: int
     catalog_start: datetime
     catalog_end: datetime
+    fmd: list[dict[str, float]]
 
 
 # ---------------------------------------------------------------------------
 # Mc estimation (Maximum Curvature)
 # ---------------------------------------------------------------------------
+
+
+def compute_fmd(
+    magnitudes: npt.NDArray[Any],
+    mc: float,
+) -> list[dict[str, float]]:
+    """Compute the cumulative frequency-magnitude distribution starting at Mc.
+
+    Returns a list of {magnitude, cumulative_count} dicts in ascending magnitude
+    order, where each entry gives the number of events with M >= that threshold.
+    """
+    mag_min: float = float(np.floor(mc / _BIN_WIDTH) * _BIN_WIDTH)
+    mag_max: float = float(np.ceil(np.max(magnitudes) / _BIN_WIDTH) * _BIN_WIDTH)
+
+    thresholds: npt.NDArray[Any] = np.arange(mag_min, mag_max + _BIN_WIDTH, _BIN_WIDTH)
+    result: list[dict[str, float]] = []
+    for thresh in thresholds:
+        count: int = int(np.sum(magnitudes >= thresh))
+        if count == 0:
+            break
+        result.append({"magnitude": round(float(thresh), 1), "cumulative_count": float(count)})
+    return result
 
 
 def estimate_mc(magnitudes: npt.NDArray[Any]) -> float:
@@ -140,6 +163,7 @@ def analyze_catalog(
 
     n_above: int = len(above_mc)
     a_value: float = math.log10(n_above) + b * mc if n_above > 0 else 0.0
+    fmd: list[dict[str, float]] = compute_fmd(mags_arr, mc)
 
     return GrResult(
         b_value=b,
@@ -149,6 +173,7 @@ def analyze_catalog(
         n_events=n_above,
         catalog_start=catalog_start,
         catalog_end=catalog_end,
+        fmd=fmd,
     )
 
 

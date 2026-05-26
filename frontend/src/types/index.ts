@@ -150,6 +150,11 @@ export interface AftershockForecast {
   model_version: string;
 }
 
+export interface FmdPoint {
+  magnitude: number;
+  cumulative_count: number;
+}
+
 export interface GrAnalysis {
   id: number;
   computed_at: string;     // ISO 8601
@@ -162,6 +167,7 @@ export interface GrAnalysis {
   catalog_start: string;  // ISO 8601
   catalog_end: string;    // ISO 8601
   model_version: string;
+  fmd?: FmdPoint[];
 }
 
 export interface GeoJsonFeature {
