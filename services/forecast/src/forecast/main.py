@@ -30,7 +30,14 @@ from prometheus_client import (
 )
 
 from .cache import ForecastCache
-from .classifier import SeismicClassifier
+from .classifier import (
+    FeatureVector,
+    SeismicClassifier,
+    _focal_depth_class,
+    _geology_type,
+    _mag_type_enc,
+    _rule_label,
+)
 from .db import CatalogEvent, Database
 from .etas import forecast as etas_forecast
 from .producer import ForecastProducer
@@ -390,26 +397,59 @@ async def run_classifier(
             )
 
             if len(train_events) >= 50:
-                depths: list[float] = [e.depth_km for e in train_events]
-                mags: list[float] = [e.magnitude for e in train_events]
-                lats: list[float] = [e.latitude for e in train_events]
-                lons: list[float] = [e.longitude for e in train_events]
+                import random as _random
 
-                n_train: int = classifier.train(depths, mags, lats, lons)
+                # Sample up to 5000 events for b_value queries (avoids N=50k DB round-trips)
+                sample_size: int = min(5000, len(train_events))
+                sampled_events: list[CatalogEvent] = _random.sample(train_events, sample_size)
 
-                if n_train > 0:
+                feature_vectors: list[FeatureVector] = []
+                pseudo_labels: list[str] = []
+
+                for e in sampled_events:
+                    b_val_raw: float | None = await db.get_b_value_for_location(
+                        e.latitude, e.longitude
+                    )
+                    b_val: float = b_val_raw if b_val_raw is not None else float("nan")
+
+                    fv = FeatureVector(
+                        source_id=e.source_id,
+                        magnitude=e.magnitude,
+                        depth_km=e.depth_km,
+                        depth_mag_ratio=e.depth_km / (e.magnitude + 0.1),
+                        b_value_local=b_val,
+                        inter_event_time_s=float("nan"),
+                        nearest_event_dist_km=float("nan"),
+                        focal_depth_class=_focal_depth_class(e.depth_km),
+                        geology_type=_geology_type(e.latitude, e.longitude),
+                        hour_of_day=e.event_time.hour,
+                        magnitude_type_enc=_mag_type_enc(e.magnitude_type),
+                    )
+                    feature_vectors.append(fv)
+                    pseudo_labels.append(_rule_label(e.depth_km, e.magnitude))
+
+                train_metrics: dict[str, float] = classifier.train(
+                    feature_vectors, pseudo_labels
+                )
+
+                n_train_val: int = int(train_metrics.get("n_train", 0))
+                if n_train_val > 0:
                     trained_at: datetime = datetime.now(tz=timezone.utc)
                     await db.deactivate_model_type("seismicity_classifier")
                     await db.upsert_model_registry(
                         model_type="seismicity_classifier",
                         version="hgb-classifier-v1",
                         trained_at=trained_at,
-                        n_train=n_train,
-                        metrics_json=json.dumps({"n_train": n_train}),
+                        n_train=n_train_val,
+                        metrics_json=json.dumps(train_metrics),
                         artifact_path="",
                         is_active=True,
                     )
-                    log.info("classifier.trained", n_train=n_train)
+                    log.info(
+                        "classifier.trained",
+                        n_train=n_train_val,
+                        macro_f1=train_metrics.get("macro_f1"),
+                    )
             else:
                 log.info(
                     "classifier.train_skip",
@@ -429,13 +469,64 @@ async def run_classifier(
                 log.info("classifier.no_unclassified")
                 return
 
-            src_ids: list[str] = [e.source_id for e in unclassified]
-            uc_depths: list[float] = [e.depth_km for e in unclassified]
-            uc_mags: list[float] = [e.magnitude for e in unclassified]
-            uc_lats: list[float] = [e.latitude for e in unclassified]
-            uc_lons: list[float] = [e.longitude for e in unclassified]
+            infer_vectors: list[FeatureVector] = []
+            for e in unclassified:
+                # b_value per event (batch of 500 max — acceptable)
+                b_raw: float | None = await db.get_b_value_for_location(
+                    e.latitude, e.longitude
+                )
+                b_local: float = b_raw if b_raw is not None else float("nan")
 
-            results = classifier.predict(src_ids, uc_depths, uc_mags, uc_lats, uc_lons)
+                # Inter-event features from nearby recent events
+                nearby: list[CatalogEvent] = await db.get_nearby_recent_events(
+                    lat=e.latitude,
+                    lon=e.longitude,
+                    radius_km=50.0,
+                    hours=24,
+                )
+
+                inter_event_time_s: float = float("nan")
+                nearest_dist_km: float = float("nan")
+
+                if nearby:
+                    # Find the nearest prior event in time
+                    prior = [n for n in nearby if n.event_time < e.event_time]
+                    if prior:
+                        closest_prior = max(prior, key=lambda x: x.event_time)
+                        delta = (e.event_time - closest_prior.event_time).total_seconds()
+                        inter_event_time_s = float(delta)
+
+                    # Nearest in distance (approximate using degree differences)
+                    import math as _math
+                    min_dist: float = float("inf")
+                    for n in nearby:
+                        dlat: float = (e.latitude - n.latitude) * 111.0
+                        dlon: float = (
+                            (e.longitude - n.longitude)
+                            * 111.0
+                            * _math.cos(_math.radians(e.latitude))
+                        )
+                        dist_km: float = _math.sqrt(dlat * dlat + dlon * dlon)
+                        if 0.0 < dist_km < min_dist:
+                            min_dist = dist_km
+                    if min_dist < float("inf"):
+                        nearest_dist_km = min_dist
+
+                infer_vectors.append(FeatureVector(
+                    source_id=e.source_id,
+                    magnitude=e.magnitude,
+                    depth_km=e.depth_km,
+                    depth_mag_ratio=e.depth_km / (e.magnitude + 0.1),
+                    b_value_local=b_local,
+                    inter_event_time_s=inter_event_time_s,
+                    nearest_event_dist_km=nearest_dist_km,
+                    focal_depth_class=_focal_depth_class(e.depth_km),
+                    geology_type=_geology_type(e.latitude, e.longitude),
+                    hour_of_day=e.event_time.hour,
+                    magnitude_type_enc=_mag_type_enc(e.magnitude_type),
+                ))
+
+            results = classifier.predict(infer_vectors)
 
             classifications: list[tuple[str, str, float]] = [
                 (r.source_id, r.event_class, r.confidence) for r in results

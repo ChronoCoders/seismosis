@@ -154,6 +154,64 @@ class Database:
             row: Any = await conn.fetchrow(query)  # type: ignore[type-arg]
         return int(row[0]) if row else 0
 
+    async def get_b_value_for_location(
+        self, lat: float, lon: float
+    ) -> float | None:
+        """Return the most recent b_value from gr_analysis for the 0.5° grid cell containing (lat, lon).
+
+        Returns None if no matching row exists.
+        """
+        query = """
+            SELECT b_value
+            FROM seismology.gr_analysis
+            WHERE grid_cell IS NOT NULL
+              AND ST_Contains(
+                      grid_cell::geometry,
+                      ST_SetSRID(ST_MakePoint($2, $1), 4326)
+                  )
+            ORDER BY computed_at DESC
+            LIMIT 1
+        """
+        async with self._pool.acquire() as conn:
+            row: Any = await conn.fetchrow(query, lat, lon)  # type: ignore[type-arg]
+        if row is None:
+            return None
+        return float(row["b_value"])
+
+    async def get_nearby_recent_events(
+        self,
+        lat: float,
+        lon: float,
+        radius_km: float,
+        hours: int,
+        limit: int = 100,
+    ) -> list[CatalogEvent]:
+        """Return events within radius_km and the last `hours` hours from seismology.seismic_events."""
+        query = """
+            SELECT source_id, event_time,
+                   ST_Y(location::geometry) AS latitude,
+                   ST_X(location::geometry) AS longitude,
+                   depth_km, magnitude, magnitude_type, region_name
+            FROM seismology.seismic_events
+            WHERE ST_DWithin(
+                      location,
+                      ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                      $3
+                  )
+              AND event_time >= NOW() - ($4 || ' hours')::interval
+            ORDER BY event_time DESC
+            LIMIT $5
+        """
+        async with self._pool.acquire() as conn:
+            rows: list[Any] = await conn.fetch(  # type: ignore[type-arg]
+                query,
+                lat, lon,
+                radius_km * 1000.0,
+                str(hours),
+                limit,
+            )
+        return [_row_to_catalog_event(r) for r in rows]
+
     async def get_unclassified_events(self, limit: int = 500) -> list[CatalogEvent]:
         query = """
             SELECT source_id, event_time,
