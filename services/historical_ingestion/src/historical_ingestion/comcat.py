@@ -140,8 +140,8 @@ async def _fetch_page(
         "minmagnitude": str(_MIN_MAG),
         "orderby": "time-asc",
         "limit": str(_PAGE_LIMIT),
-        "starttime": start_time.strftime("%Y-%m-%dT%H:%M:%S.") + f"{start_time.microsecond // 1000:03d}",
-        "endtime": end_time.strftime("%Y-%m-%dT%H:%M:%S.") + f"{end_time.microsecond // 1000:03d}",
+        "starttime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "endtime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
 
     last_exc: Exception = RuntimeError("No attempts made")
@@ -200,9 +200,11 @@ async def iter_turkey_events(
 
         yield events
 
-        # Advance cursor to 1 ms after the latest event time in this page
+        # Advance cursor to the next whole second after the latest event time.
+        # The USGS FDSN API only supports second precision in starttime, so
+        # advancing by 1 ms produces an identical query and causes an infinite loop.
         latest_time = max(e.event_time for e in events)
-        cursor = latest_time + timedelta(milliseconds=1)
+        cursor = latest_time.replace(microsecond=0) + timedelta(seconds=1)
 
         log.debug(
             "comcat_page_done",
