@@ -15,6 +15,8 @@ import numpy.typing as npt
 from sklearn.ensemble import HistGradientBoostingClassifier  # type: ignore[import-untyped]
 from sklearn.metrics import f1_score  # type: ignore[import-untyped]
 from sklearn.model_selection import StratifiedKFold  # type: ignore[import-untyped]
+from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
+from sklearn.preprocessing import OrdinalEncoder  # type: ignore[import-untyped]
 
 import structlog
 
@@ -41,6 +43,7 @@ class ClassificationResult:
     source_id: str
     event_class: str
     confidence: float
+    probabilities: dict[str, float]
 
 
 @dataclass
@@ -162,11 +165,36 @@ def _to_feature_matrix(feature_vectors: list[FeatureVector]) -> npt.NDArray[Any]
 # ---------------------------------------------------------------------------
 
 
+def _make_pipeline() -> Pipeline:
+    """Build the canonical classifier pipeline: OrdinalEncoder → HistGradientBoosting."""
+    return Pipeline([
+        (
+            "encoder",
+            OrdinalEncoder(
+                handle_unknown="use_encoded_value",
+                unknown_value=-1,
+                encoded_missing_value=np.nan,
+            ),
+        ),
+        (
+            "clf",
+            HistGradientBoostingClassifier(
+                max_iter=500,
+                learning_rate=0.05,
+                max_depth=6,
+                min_samples_leaf=20,
+                class_weight="balanced",
+                random_state=42,
+            ),
+        ),
+    ])
+
+
 class SeismicClassifier:
     """Gradient-boosting seismicity classifier with a rule-based fallback."""
 
     def __init__(self) -> None:
-        self._model: Optional[HistGradientBoostingClassifier] = None
+        self._model: Optional[Pipeline] = None
         self._is_trained: bool = False
 
     # ------------------------------------------------------------------
@@ -221,9 +249,7 @@ class SeismicClassifier:
                 X_val: npt.NDArray[Any] = X[val_idx]
                 y_val: npt.NDArray[Any] = y[val_idx]
 
-                fold_model = HistGradientBoostingClassifier(
-                    max_iter=100, random_state=42
-                )
+                fold_model = _make_pipeline()
                 fold_model.fit(X_tr, y_tr)
                 y_hat: npt.NDArray[Any] = fold_model.predict(X_val)
 
@@ -251,7 +277,7 @@ class SeismicClassifier:
                 )
 
         # Final model trained on full dataset
-        self._model = HistGradientBoostingClassifier(max_iter=100, random_state=42)
+        self._model = _make_pipeline()
         self._model.fit(X, y)
         self._is_trained = True
 
@@ -283,15 +309,19 @@ class SeismicClassifier:
         X: npt.NDArray[Any] = _to_feature_matrix(feature_vectors)
         y_pred: npt.NDArray[Any] = self._model.predict(X)
         y_proba: npt.NDArray[Any] = self._model.predict_proba(X)
+        classes: list[str] = list(self._model.named_steps["clf"].classes_)
 
         results: list[ClassificationResult] = []
         for i, fv in enumerate(feature_vectors):
             event_class: str = str(y_pred[i])
-            confidence: float = float(np.max(y_proba[i]))
+            proba_row: npt.NDArray[Any] = y_proba[i]
+            proba_map: dict[str, float] = {c: float(proba_row[j]) for j, c in enumerate(classes)}
+            confidence: float = float(np.max(proba_row))
             results.append(ClassificationResult(
                 source_id=fv.source_id,
                 event_class=event_class,
                 confidence=confidence,
+                probabilities=proba_map,
             ))
         return results
 
@@ -303,9 +333,16 @@ class SeismicClassifier:
         results: list[ClassificationResult] = []
         for fv in feature_vectors:
             event_class: str = _rule_label(fv.depth_km, fv.magnitude)
+            # Assign the rule confidence to the predicted class; spread remainder
+            # uniformly across the other two classes.
+            other_p: float = (1.0 - 0.6) / (len(_CLASSES) - 1)
+            proba_map: dict[str, float] = {
+                c: 0.6 if c == event_class else other_p for c in _CLASSES
+            }
             results.append(ClassificationResult(
                 source_id=fv.source_id,
                 event_class=event_class,
                 confidence=0.6,
+                probabilities=proba_map,
             ))
         return results

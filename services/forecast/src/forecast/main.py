@@ -528,8 +528,9 @@ async def run_classifier(
 
             results = classifier.predict(infer_vectors)
 
-            classifications: list[tuple[str, str, float]] = [
-                (r.source_id, r.event_class, r.confidence) for r in results
+            classifications: list[tuple[str, str, float, str]] = [
+                (r.source_id, r.event_class, r.confidence, json.dumps(r.probabilities))
+                for r in results
             ]
             await db.update_event_classifications(classifications)
             metrics.classifier_events.inc(len(results))

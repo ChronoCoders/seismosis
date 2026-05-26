@@ -490,6 +490,7 @@ struct EtasForecastRow {
     params_zone: Option<String>,
     params_snapshot: Option<serde_json::Value>,
     model_version: String,
+    spatial_heatmap: Option<serde_json::Value>,
 }
 
 impl From<EtasForecastRow> for AftershockForecastResponse {
@@ -507,6 +508,7 @@ impl From<EtasForecastRow> for AftershockForecastResponse {
             params_zone: r.params_zone,
             params_snapshot: r.params_snapshot,
             model_version: r.model_version,
+            spatial_heatmap: r.spatial_heatmap,
         }
     }
 }
@@ -531,7 +533,8 @@ pub async fn get_aftershock_forecast(
             daily_rates,
             params_zone,
             params_snapshot,
-            model_version
+            model_version,
+            spatial_heatmap
         FROM seismology.etas_forecasts
         WHERE mainshock_source_id = $1
         ORDER BY computed_at DESC
@@ -707,6 +710,7 @@ struct ClassificationRow {
     source_id: String,
     event_class: Option<String>,
     class_confidence: Option<f64>,
+    class_probabilities: Option<serde_json::Value>,
 }
 
 /// Fetch the seismicity classification for a single event by `source_id`.
@@ -722,7 +726,8 @@ pub async fn get_event_classification(
         SELECT
             source_id,
             event_class,
-            class_confidence::float8 AS class_confidence
+            class_confidence::float8 AS class_confidence,
+            class_probabilities
         FROM seismology.seismic_events
         WHERE source_id = $1
         LIMIT 1
@@ -737,6 +742,7 @@ pub async fn get_event_classification(
         source_id: r.source_id,
         event_class: r.event_class,
         class_confidence: r.class_confidence,
+        probabilities: r.class_probabilities,
     }))
 }
 

@@ -378,14 +378,19 @@ class Database:
 
     async def update_event_classifications(
         self,
-        classifications: list[tuple[str, str, float]],
+        classifications: list[tuple[str, str, float, str]],
     ) -> None:
+        """Write event_class, class_confidence, and class_probabilities to seismic_events.
+
+        Each tuple is (source_id, event_class, class_confidence, class_probabilities_json).
+        """
         if not classifications:
             return
         query = """
             UPDATE seismology.seismic_events
-               SET event_class      = $2,
-                   class_confidence = $3
+               SET event_class          = $2,
+                   class_confidence     = $3,
+                   class_probabilities  = $4::jsonb
              WHERE source_id = $1
         """
         async with self._pool.acquire() as conn:

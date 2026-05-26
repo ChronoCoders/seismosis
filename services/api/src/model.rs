@@ -166,6 +166,10 @@ pub struct AftershockForecastResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params_snapshot: Option<serde_json::Value>,
     pub model_version: String,
+    /// Spatial probability density heatmap as a GeoJSON FeatureCollection.
+    /// Absent when no spatial heatmap was computed for this run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spatial_heatmap: Option<serde_json::Value>,
 }
 
 /// Placeholder regional seismicity forecast for `GET /v1/forecasts/regional`.
@@ -242,4 +246,8 @@ pub struct EventClassificationResponse {
     /// Model confidence in `[0, 1]`. `null` when `event_class` is null.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub class_confidence: Option<f64>,
+    /// Per-class probability map `{tectonic, induced, volcanic}`. `null` when
+    /// the classification service has not yet processed this event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probabilities: Option<serde_json::Value>,
 }
