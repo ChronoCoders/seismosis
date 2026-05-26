@@ -103,7 +103,9 @@ class Database:
         lookback_days: int,
     ) -> list[CatalogEvent]:
         query = """
-            SELECT source_id, event_time, latitude, longitude,
+            SELECT source_id, event_time,
+                   ST_Y(location::geometry) AS latitude,
+                   ST_X(location::geometry) AS longitude,
                    depth_km, magnitude, magnitude_type, region_name
             FROM seismology.seismic_events
             WHERE magnitude >= $1
@@ -154,7 +156,9 @@ class Database:
 
     async def get_unclassified_events(self, limit: int = 500) -> list[CatalogEvent]:
         query = """
-            SELECT source_id, event_time, latitude, longitude,
+            SELECT source_id, event_time,
+                   ST_Y(location::geometry) AS latitude,
+                   ST_X(location::geometry) AS longitude,
                    depth_km, magnitude, magnitude_type, region_name
             FROM seismology.seismic_events
             WHERE event_class IS NULL
