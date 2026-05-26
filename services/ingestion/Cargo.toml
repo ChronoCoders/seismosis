@@ -55,10 +55,10 @@ chrono = { workspace = true }
 tokio-retry = { workspace = true }
 
 # ── LRU cache (Redis-offline dedup fallback) ─────────────────
-lru = "0.12"
+lru = { workspace = true }
 
 # ── Async trait objects ──────────────────────────────────────
-async-trait = "0.1"
+async-trait = { workspace = true }
 
 # ── Concurrent futures (join_all for parallel source polling) ─
 futures = { version = "0.3", default-features = false, features = ["alloc"] }

@@ -1,5 +1,4 @@
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts, Registry};
-use std::sync::Arc;
 
 /// All Prometheus metrics for the ingestion service.
 ///
@@ -42,7 +41,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    pub fn new() -> Result<Arc<Self>, prometheus::Error> {
+    pub fn new() -> Result<Self, prometheus::Error> {
         let registry = Registry::new_custom(None, None)?;
 
         macro_rules! register {
@@ -129,7 +128,7 @@ impl Metrics {
             &["source"],
         )?);
 
-        Ok(Arc::new(Self {
+        Ok(Self {
             events_received_total,
             events_published_total,
             events_deduplicated_total,
@@ -140,6 +139,6 @@ impl Metrics {
             dedup_redis_fallback_total,
             adaptive_poll_activations_total,
             registry,
-        }))
+        })
     }
 }

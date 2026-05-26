@@ -65,11 +65,20 @@ struct Properties {
 pub struct EmscSource {
     client: reqwest::Client,
     config: Arc<Config>,
+    metrics: Arc<crate::metrics::Metrics>,
 }
 
 impl EmscSource {
-    pub fn new(client: reqwest::Client, config: Arc<Config>) -> Self {
-        Self { client, config }
+    pub fn new(
+        client: reqwest::Client,
+        config: Arc<Config>,
+        metrics: Arc<crate::metrics::Metrics>,
+    ) -> Self {
+        Self {
+            client,
+            config,
+            metrics,
+        }
     }
 
     async fn fetch_once(
@@ -110,14 +119,12 @@ impl EmscSource {
             return Ok(vec![]);
         }
 
-        if !status.is_success() {
-            return Err(IngestError::HttpFetch {
+        let response = response
+            .error_for_status()
+            .map_err(|e| IngestError::HttpFetch {
                 src: SOURCE_NAME,
-                inner: response
-                    .error_for_status()
-                    .expect_err("status is not success"),
-            });
-        }
+                inner: e,
+            })?;
 
         let body = response.bytes().await.map_err(|e| IngestError::HttpFetch {
             src: SOURCE_NAME,
@@ -153,6 +160,10 @@ impl EmscSource {
                 Ok(event) => events.push(event),
                 Err(e) => {
                     warn!(error = %e, source = SOURCE_NAME, "Skipping unparseable event");
+                    self.metrics
+                        .events_rejected_total
+                        .with_label_values(&[SOURCE_NAME, "parse_error"])
+                        .inc();
                 }
             }
         }
@@ -201,6 +212,14 @@ fn parse_feature(
         src: SOURCE_NAME,
         event_id: event_id.clone(),
     })?;
+    if !magnitude.is_finite() {
+        return Err(ParseError::InvalidField {
+            field: "magnitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+            detail: format!("{magnitude} is not a finite magnitude"),
+        });
+    }
 
     let time_str = props
         .time

@@ -7,6 +7,7 @@
 ///   cargo test --test-threads=1    # containers share the Docker daemon; serialise to avoid port conflicts
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::Duration;
 
     use apache_avro::Schema;
@@ -187,7 +188,7 @@ mod tests {
 
         let dedup = Deduplicator::new(&redis_url, 60).await;
         let config = test_config(&brokers, topic);
-        let metrics = Metrics::new().expect("Failed to create metrics");
+        let metrics = Arc::new(Metrics::new().expect("Failed to create metrics"));
         let producer = EventProducer::new(&config, metrics).expect("Failed to create producer");
         let avro_schema = Schema::parse_str(AVRO_SCHEMA).expect("Avro schema parse failed");
         let encoder = AvroEncoder::new(avro_schema, 1);
@@ -236,7 +237,7 @@ mod tests {
         // Use the fast-fail config: 0 retries + 1 s delivery timeout so the
         // test completes in ~1 s instead of the default 30 s window.
         let config = dead_broker_config();
-        let metrics = Metrics::new().expect("Failed to create metrics");
+        let metrics = Arc::new(Metrics::new().expect("Failed to create metrics"));
         let producer = EventProducer::new(&config, metrics).expect("Failed to create producer");
         let avro_schema = Schema::parse_str(AVRO_SCHEMA).expect("Avro schema parse failed");
         let encoder = AvroEncoder::new(avro_schema, 1);

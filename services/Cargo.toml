@@ -76,6 +76,12 @@ uuid = { version = "1", features = ["serde", "v4"] }
 # ── Retry with exponential backoff ───────────────────────────
 tokio-retry = "0.3"
 
+# ── LRU cache ────────────────────────────────────────────
+lru = "0.12"
+
+# ── Async trait objects ─────────────────────────────────
+async-trait = "0.1"
+
 # ── OpenAPI / Swagger ────────────────────────────────────────
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }

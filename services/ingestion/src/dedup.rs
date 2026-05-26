@@ -133,7 +133,7 @@ impl Deduplicator {
         // `peek` is used intentionally — it does not update LRU recency order,
         // keeping this a pure read.
         {
-            let lru = self.lru.lock().expect("LRU mutex should not be poisoned");
+            let lru = self.lru.lock().unwrap_or_else(|e| e.into_inner());
             if lru.peek(source_id).is_some() {
                 debug!(source_id, "Dedup: LRU hit (duplicate)");
                 return true;
@@ -183,7 +183,7 @@ impl Deduplicator {
     pub async fn mark_seen(&self, source_id: &str) {
         // Always update the in-memory LRU (fast, no network).
         {
-            let mut lru = self.lru.lock().expect("LRU mutex should not be poisoned");
+            let mut lru = self.lru.lock().unwrap_or_else(|e| e.into_inner());
             lru.put(source_id.to_owned(), ());
         }
 

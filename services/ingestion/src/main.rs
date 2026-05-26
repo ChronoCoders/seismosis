@@ -50,8 +50,10 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|e| {
+                eprintln!("WARN: invalid RUST_LOG filter ({e}), defaulting to info");
+                tracing_subscriber::EnvFilter::new("info")
+            }),
         )
         .with_target(true)
         .with_thread_ids(false)
@@ -70,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         "Seismosis ingestion service starting",
     );
 
-    let metrics = Metrics::new()?;
+    let metrics = Arc::new(Metrics::new()?);
 
     let http_client = reqwest::Client::builder()
         .timeout(config.http_timeout)
@@ -127,8 +129,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let sources: Vec<Box<dyn SeismicSource>> = vec![
-        Box::new(UsgsSource::new(http_client.clone(), Arc::clone(&config))),
-        Box::new(EmscSource::new(http_client.clone(), Arc::clone(&config))),
+        Box::new(UsgsSource::new(
+            http_client.clone(),
+            Arc::clone(&config),
+            Arc::clone(&metrics),
+        )),
+        Box::new(EmscSource::new(
+            http_client.clone(),
+            Arc::clone(&config),
+            Arc::clone(&metrics),
+        )),
         Box::new(AfadSource::new(
             http_client.clone(),
             Arc::clone(&config),
@@ -272,7 +282,9 @@ async fn run_poll_loop(
                                     source_id: &event.source_id,
                                     raw_payload: &event.raw_payload,
                                 };
-                                let _ = dlq.send(&envelope).await;
+                                if let Err(()) = dlq.send(&envelope).await {
+                                    // DLQ failure is already logged at ERROR inside DlqProducer::send.
+                                }
                                 rejected += 1;
                                 metrics
                                     .events_rejected_total
@@ -295,6 +307,11 @@ async fn run_poll_loop(
                                 // window so aftershocks are captured quickly.
                                 if event.magnitude >= config.adaptive_magnitude_threshold {
                                     let new_deadline = Instant::now() + config.adaptive_poll_window;
+                                    // Extend the adaptive window on each significant event so that
+                                    // aftershock sequences keep fast-poll active for the full window
+                                    // duration after the last qualifying event. This can keep fast-poll
+                                    // active indefinitely during highly active sequences — which is the
+                                    // correct behaviour for seismic hazard monitoring.
                                     let is_new_or_extended =
                                         fast_poll_until.map_or(true, |t| new_deadline > t);
                                     if is_new_or_extended {
@@ -326,7 +343,9 @@ async fn run_poll_loop(
                                     source_id: &event.source_id,
                                     raw_payload: &event.raw_payload,
                                 };
-                                let _ = dlq.send(&envelope).await;
+                                if let Err(()) = dlq.send(&envelope).await {
+                                    // DLQ failure is already logged at ERROR inside DlqProducer::send.
+                                }
                                 rejected += 1;
                                 metrics
                                     .events_rejected_total
@@ -410,17 +429,19 @@ async fn run_metrics_server(
                             .header(axum::http::header::CONTENT_TYPE, encoder.format_type())
                             .body(Body::from(buf))
                             .unwrap_or_else(|_| {
+                                // Builder with a literal 500 status and empty body is
+                                // always valid; the inner unwrap_or_else is unreachable.
                                 Response::builder()
                                     .status(500)
                                     .body(Body::empty())
-                                    .expect("static 500 response is always valid")
+                                    .unwrap_or_else(|_| Response::new(Body::empty()))
                             }),
                         Err(e) => {
                             error!(error = %e, "Failed to encode Prometheus metrics");
                             Response::builder()
                                 .status(500)
                                 .body(Body::from(e.to_string()))
-                                .expect("static error response is always valid")
+                                .unwrap_or_else(|_| Response::new(Body::empty()))
                         }
                     }
                 }

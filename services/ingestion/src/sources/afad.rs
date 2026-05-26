@@ -229,6 +229,14 @@ fn parse_event(
             event_id: event_id.clone(),
             detail: format!("cannot parse '{}' as f64", mag_str),
         })?;
+    if !magnitude.is_finite() {
+        return Err(ParseError::InvalidField {
+            field: "magnitude",
+            src: SOURCE_NAME,
+            event_id: event_id.clone(),
+            detail: format!("{magnitude} is not a finite magnitude"),
+        });
+    }
 
     let lat_str = raw
         .latitude
