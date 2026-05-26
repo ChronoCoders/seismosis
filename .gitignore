@@ -8,10 +8,6 @@
 target/
 **/*.rs.bk
 
-# Claude Code configuration and project instructions
-CLAUDE.md
-.claude/
-
 # Python
 __pycache__/
 *.py[cod]
