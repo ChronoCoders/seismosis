@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { fetchEvent } from '@/lib/api';
 import { MagnitudeBadge } from '@/components/MagnitudeBadge';
 import { getMagnitudeInfo, formatDateTime, formatDepth } from '@/lib/magnitude';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface Props {
   params: { id: string };
@@ -128,11 +129,13 @@ export default async function DepremDetayPage({ params }: Props) {
 
           {/* ── Mini map ── */}
           <div className="rounded border border-border overflow-hidden min-h-[280px] md:min-h-0">
-            <DetailMap
-              latitude={event.latitude}
-              longitude={event.longitude}
-              magnitude={event.magnitude}
-            />
+            <ErrorBoundary>
+              <DetailMap
+                latitude={event.latitude}
+                longitude={event.longitude}
+                magnitude={event.magnitude}
+              />
+            </ErrorBoundary>
           </div>
         </div>
 

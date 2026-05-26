@@ -245,7 +245,7 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
         </div>
       </div>
 
-      <div className="w-[300px] shrink-0 flex flex-col min-h-0 bg-surface">
+      <div className="hidden md:flex w-[300px] shrink-0 flex-col min-h-0 bg-surface">
         <div className="px-4 py-2.5 border-b border-border shrink-0">
           <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
             Kalite & Büyüklük

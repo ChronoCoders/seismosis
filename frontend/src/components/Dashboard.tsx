@@ -565,12 +565,14 @@ export function Dashboard() {
       <TabBar active={activeTab} onChange={setActiveTab} />
 
       {activeTab === 'realtime' && (
-        <RealtimeTab events={events} wsStatus={wsStatus} />
+        <ErrorBoundary>
+          <RealtimeTab events={events} wsStatus={wsStatus} />
+        </ErrorBoundary>
       )}
 
-      {activeTab === 'history' && <HistoryTab />}
+      {activeTab === 'history' && <ErrorBoundary><HistoryTab /></ErrorBoundary>}
 
-      {activeTab === 'compare' && <CompareTab />}
+      {activeTab === 'compare' && <ErrorBoundary><CompareTab /></ErrorBoundary>}
 
       {activeTab === 'overview' && (
         <>
