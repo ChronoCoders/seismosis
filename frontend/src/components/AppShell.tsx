@@ -12,6 +12,7 @@ import { AlertsPage } from '@/components/pages/AlertsPage';
 import { RegionalPage } from '@/components/pages/RegionalPage';
 import { StatsPage } from '@/components/pages/StatsPage';
 import { DataSourcesPage } from '@/components/pages/DataSourcesPage';
+import { ForecastPage } from '@/components/pages/ForecastPage';
 import { SettingsPage } from '@/components/pages/SettingsPage';
 import RealtimeTab from '@/components/tabs/RealtimeTab';
 import HistoryTab from '@/components/tabs/HistoryTab';
@@ -25,6 +26,7 @@ export type PageId =
   | 'regional'
   | 'compare'
   | 'stats'
+  | 'forecast'
   | 'sources'
   | 'settings';
 
@@ -137,6 +139,8 @@ export function AppShell() {
         return <CompareTab />;
       case 'stats':
         return <StatsPage bands={bands} events={events} />;
+      case 'forecast':
+        return <ForecastPage />;
       case 'sources':
         return <DataSourcesPage events={events} />;
       case 'settings':

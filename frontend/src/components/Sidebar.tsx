@@ -8,6 +8,7 @@ import {
   Globe,
   BarChart2,
   TrendingUp,
+  LineChart,
   Database,
   Settings,
   ChevronLeft,
@@ -57,6 +58,7 @@ const SECTIONS: Section[] = [
       { id: 'regional',  label: 'Bölgesel Analiz', icon: Globe     },
       { id: 'compare',   label: 'Karşılaştırma',   icon: BarChart2 },
       { id: 'stats',     label: 'İstatistikler',   icon: TrendingUp},
+      { id: 'forecast',  label: 'Tahmin',          icon: LineChart },
     ],
   },
   {

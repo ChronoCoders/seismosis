@@ -1,4 +1,12 @@
-import type { EarthquakeEvent, EventListResponse, StatsResponse } from '@/types';
+import type {
+  AftershockForecast,
+  EarthquakeEvent,
+  EventListResponse,
+  GrAnalysis,
+  GrMapResponse,
+  RegionalForecastResponse,
+  StatsResponse,
+} from '@/types';
 
 /**
  * Returns the API base URL.
@@ -38,4 +46,43 @@ export async function fetchStats(): Promise<StatsResponse> {
   const res = await fetch(`${apiBase()}/stats`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`GET /v1/stats → HTTP ${res.status}`);
   return res.json() as Promise<StatsResponse>;
+}
+
+export async function fetchAftershockForecast(
+  sourceId: string,
+): Promise<AftershockForecast | null> {
+  const res = await fetch(
+    `${apiBase()}/forecasts/aftershock/${encodeURIComponent(sourceId)}`,
+    { cache: 'no-store' },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GET /v1/forecasts/aftershock → HTTP ${res.status}`);
+  return res.json() as Promise<AftershockForecast>;
+}
+
+export async function fetchRegionalForecast(
+  params: Record<string, string | number> = {},
+): Promise<RegionalForecastResponse> {
+  const url = new URL(`${apiBase()}/forecasts/regional`, 'http://placeholder');
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+  const res = await fetch(url.pathname + url.search, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`GET /v1/forecasts/regional → HTTP ${res.status}`);
+  return res.json() as Promise<RegionalForecastResponse>;
+}
+
+export async function fetchGrAnalysis(): Promise<GrAnalysis | null> {
+  const res = await fetch(`${apiBase()}/analysis/gr`, { cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GET /v1/analysis/gr → HTTP ${res.status}`);
+  return res.json() as Promise<GrAnalysis>;
+}
+
+export async function fetchGrMap(
+  params: Record<string, string | number> = {},
+): Promise<GrMapResponse> {
+  const url = new URL(`${apiBase()}/analysis/gr/map`, 'http://placeholder');
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+  const res = await fetch(url.pathname + url.search, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`GET /v1/analysis/gr/map → HTTP ${res.status}`);
+  return res.json() as Promise<GrMapResponse>;
 }

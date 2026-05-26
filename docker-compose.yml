@@ -9,7 +9,7 @@
 #   Monitoring   : Prometheus + Grafana
 #   Exporters    : Kafka Exporter + Postgres Exporter + Redis Exporter
 #   Applications : seismosis-ingestion, seismosis-storage, seismosis-api, seismosis-analysis,
-#                  seismosis-frontend
+#                  seismosis-websocket, seismosis-frontend, seismosis-historical-ingest
 #
 # Usage:
 #   cp .env.example .env && docker compose up -d
@@ -586,6 +586,41 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    restart: unless-stopped
+
+  seismosis-historical-ingest:
+    build:
+      context: ./services/historical_ingestion
+      dockerfile: Dockerfile
+    container_name: seismosis-historical-ingest
+    networks:
+      - seismosis-net
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
+      METRICS_PORT: "9097"
+      COMCAT_START_DATE: "2016-01-01"
+      COMCAT_MIN_MAGNITUDE: "1.5"
+      COMCAT_MIN_LAT: "33.0"
+      COMCAT_MAX_LAT: "45.0"
+      COMCAT_MIN_LON: "22.0"
+      COMCAT_MAX_LON: "48.0"
+      LOG_LEVEL: "info"
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost:9097/health || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:

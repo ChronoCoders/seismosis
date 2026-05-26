@@ -134,6 +134,54 @@ export function apiEventToDisplay(e: EarthquakeEvent): DisplayEvent {
   };
 }
 
+// ── Phase 3: Forecast & Analysis types ───────────────────────────────────────
+
+export interface AftershockForecast {
+  mainshock_source_id: string;
+  computed_at: string;     // ISO 8601
+  horizon_days: number;
+  min_magnitude: number;
+  expected_count: number;
+  p_at_least_one: number;
+  p_exceedance?: Record<string, number>;
+  daily_rates?: number[];
+  params_zone?: string;
+  params_snapshot?: Record<string, number>;
+  model_version: string;
+}
+
+export interface GrAnalysis {
+  id: number;
+  computed_at: string;     // ISO 8601
+  region_name?: string;
+  b_value: number;
+  b_std: number;
+  a_value: number;
+  mc: number;
+  n_events: number;
+  catalog_start: string;  // ISO 8601
+  catalog_end: string;    // ISO 8601
+  model_version: string;
+}
+
+export interface GeoJsonFeature {
+  type: 'Feature';
+  geometry: { type: string; coordinates: unknown };
+  properties: Record<string, unknown>;
+}
+
+export interface GrMapResponse {
+  type: string;
+  features: GeoJsonFeature[];
+  computed_at: string;
+}
+
+export interface RegionalForecastResponse {
+  type: string;
+  features: GeoJsonFeature[];
+  computed_at: string;
+}
+
 export function enrichedToDisplay(e: EnrichedEvent): DisplayEvent {
   return {
     source_id: e.source_id,
