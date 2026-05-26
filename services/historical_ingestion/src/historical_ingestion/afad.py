@@ -60,8 +60,8 @@ _HTTP_TIMEOUT_SECS = 60.0
 _MAX_RETRIES = 3
 _BACKOFF_BASE_SECS = 2.0
 
-_DATE_FORMATS = (
-    "%Y-%m-%dT%H:%M:%S",
+# Fallback strptime formats for non-ISO strings (e.g. "2016.01.01 12:34:56")
+_STRPTIME_FALLBACK_FORMATS = (
     "%Y.%m.%d %H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
 )
@@ -98,9 +98,22 @@ class AfadEvent:
 
 
 def _parse_afad_date(date_str: str) -> datetime:
-    """Parse an AFAD date string into a UTC-aware datetime."""
+    """Parse an AFAD date string into a UTC-aware datetime.
+
+    Tries datetime.fromisoformat() first (handles variable sub-second precision
+    such as "2016-12-12T03:17:44.27"), then falls back to strptime for
+    dot-separated formats ("2016.01.01 12:34:56").
+    """
     cleaned = date_str.strip()
-    for fmt in _DATE_FORMATS:
+    # fromisoformat in Python 3.11+ handles variable fractional seconds
+    try:
+        dt = datetime.fromisoformat(cleaned)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        pass
+    for fmt in _STRPTIME_FALLBACK_FORMATS:
         try:
             dt = datetime.strptime(cleaned, fmt)
             return dt.replace(tzinfo=timezone.utc)
