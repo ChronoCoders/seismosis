@@ -170,6 +170,8 @@ services:
         rpk topic create earthquakes.alerts --partitions 3 --replicas 1 --topic-config retention.ms=2592000000 --topic-config compression.type=zstd --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
         echo '==> Creating earthquakes.dead-letter (processing failures, 30d retention)'
         rpk topic create earthquakes.dead-letter --partitions 3 --replicas 1 --topic-config retention.ms=2592000000 --topic-config compression.type=zstd --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
+        echo '==> Creating earthquakes.forecasts (ETAS forecast records, 30d retention)'
+        rpk topic create earthquakes.forecasts --partitions 3 --replicas 1 --topic-config retention.ms=2592000000 --topic-config compression.type=zstd --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
         echo '==> All topics created successfully'
         rpk topic list
     deploy:
@@ -601,6 +603,8 @@ services:
       - seismosis-net
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
+      KAFKA_BROKERS: "redpanda:9092"
+      SCHEMA_REGISTRY_URL: "http://redpanda:8081"
       METRICS_PORT: "9098"
       LOG_LEVEL: "INFO"
       GR_INTERVAL_HOURS: "6"
@@ -617,6 +621,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -636,6 +644,7 @@ services:
       context: ./services/historical_ingestion
       dockerfile: Dockerfile
     container_name: seismosis-historical-ingest
+    profiles: ["ingest"]
     networks:
       - seismosis-net
     environment:

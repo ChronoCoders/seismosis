@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::error::RequestError;
 use crate::model::{
     AftershockForecastResponse, BandStats, EventClassificationResponse, EventResponse, EventsQuery,
-    GrAnalysisResponse,
+    GrAnalysisResponse, Phase3StatsFields,
 };
 
 /// Flat row returned by the events list query.
@@ -399,6 +399,81 @@ pub async fn get_stats(pool: &PgPool) -> Result<Vec<BandStats>, RequestError> {
     }
 
     Ok(result)
+}
+
+/// Fetch Phase 3 supplementary statistics for the `/v1/stats` endpoint.
+///
+/// Queries:
+/// - Latest global b-value and Mc from `seismology.gr_analysis` (grid_cell IS NULL).
+/// - Count of distinct mainshocks with ETAS forecasts in the last 7 days.
+/// - Model version from the most recent ETAS forecast row.
+///
+/// All queries are best-effort: if the Phase 3 tables are empty (e.g. the
+/// forecast service has not run yet) the optional fields will be `None` and
+/// `active_sequences` will be 0.
+pub async fn get_phase3_stats(pool: &PgPool) -> Result<Phase3StatsFields, RequestError> {
+    // GR global stats
+    #[derive(sqlx::FromRow)]
+    struct GrRow {
+        b_value: Option<f64>,
+        mc: Option<f64>,
+    }
+
+    let gr_row = sqlx::query_as::<_, GrRow>(
+        r#"
+        SELECT b_value::float8 AS b_value, mc::float8 AS mc
+        FROM seismology.gr_analysis
+        WHERE grid_cell IS NULL
+        ORDER BY computed_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let (b_value_region, mc_region) = gr_row
+        .map(|r| (r.b_value, r.mc))
+        .unwrap_or((None, None));
+
+    // Active ETAS sequences (last 7 days)
+    #[derive(sqlx::FromRow)]
+    struct SeqRow {
+        active_sequences: i64,
+    }
+
+    let seq_row = sqlx::query_as::<_, SeqRow>(
+        r#"
+        SELECT COUNT(DISTINCT mainshock_source_id)::bigint AS active_sequences
+        FROM seismology.etas_forecasts
+        WHERE computed_at >= NOW() - INTERVAL '7 days'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Latest ETAS model version
+    #[derive(sqlx::FromRow)]
+    struct VerRow {
+        model_version: Option<String>,
+    }
+
+    let ver_row = sqlx::query_as::<_, VerRow>(
+        r#"
+        SELECT model_version
+        FROM seismology.etas_forecasts
+        ORDER BY computed_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(Phase3StatsFields {
+        b_value_region,
+        mc_region,
+        active_sequences: seq_row.active_sequences,
+        forecast_model_version: ver_row.and_then(|r| r.model_version),
+    })
 }
 
 // ── Phase 3 forecast and analysis queries ─────────────────────────────────────

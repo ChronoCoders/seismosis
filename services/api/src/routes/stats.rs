@@ -48,11 +48,18 @@ pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsRespon
 
     debug!("Stats cache miss — querying DB");
 
-    let bands = crate::db::get_stats(&state.pool).await?;
+    let (bands, phase3) = tokio::try_join!(
+        crate::db::get_stats(&state.pool),
+        crate::db::get_phase3_stats(&state.pool),
+    )?;
 
     let response = StatsResponse {
         bands,
         computed_at: Utc::now(),
+        b_value_region: phase3.b_value_region,
+        mc_region: phase3.mc_region,
+        active_sequences: phase3.active_sequences,
+        forecast_model_version: phase3.forecast_model_version,
     };
 
     // Cache the result for the configured TTL. Fire-and-forget; the response

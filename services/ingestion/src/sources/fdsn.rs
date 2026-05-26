@@ -47,6 +47,17 @@ use crate::metrics::Metrics;
 use crate::schema::RawEarthquakeEvent;
 use crate::sources::{normalise_mag_type, validate_coordinates};
 
+// ── Dynamic source config ──────────────────────────────────────────────────────
+
+/// Configuration for a dynamically-configured FDSN source, used when
+/// `FDSN_SOURCES` env var is set.
+#[derive(Debug, Clone)]
+pub struct FdsnSourceConfig {
+    pub name: String,
+    pub prefix: String,
+    pub base_url: String,
+}
+
 // ── GeoJSON deserialisation types ─────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -119,6 +130,34 @@ impl FdsnSource {
             source_name,
             network_prefix,
             base_url: base_url.into(),
+            client,
+            config,
+            metrics,
+        }
+    }
+
+    /// Construct a new FDSN source from a [`FdsnSourceConfig`].
+    ///
+    /// The `name` and `prefix` strings from the config are leaked onto the
+    /// heap so they satisfy the `&'static str` requirement of `SeismicSource::name()`.
+    /// This is acceptable because FDSN sources live for the lifetime of the
+    /// process.
+    pub fn from_config(
+        cfg: FdsnSourceConfig,
+        client: reqwest::Client,
+        config: Arc<Config>,
+        metrics: Arc<Metrics>,
+    ) -> Self {
+        // SAFETY: Both strings are leaked intentionally — FDSN source configs
+        // are created once at startup and must outlive the entire process.
+        // The memory is never freed, which is acceptable for a small, bounded
+        // set of config values whose count equals the number of FDSN networks.
+        let source_name: &'static str = Box::leak(cfg.name.into_boxed_str());
+        let network_prefix: &'static str = Box::leak(cfg.prefix.into_boxed_str());
+        Self {
+            source_name,
+            network_prefix,
+            base_url: cfg.base_url,
             client,
             config,
             metrics,

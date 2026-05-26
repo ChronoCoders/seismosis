@@ -63,6 +63,35 @@ pub struct StatsResponse {
     pub bands: Vec<BandStats>,
     /// Time this stats snapshot was computed (UTC).
     pub computed_at: DateTime<Utc>,
+
+    // ── Phase 3 fields ────────────────────────────────────────────────────────
+    /// Latest global Gutenberg-Richter b-value (Turkey region, no grid cell).
+    /// Absent when the forecast service has not run yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b_value_region: Option<f64>,
+    /// Magnitude of completeness (Mc) for the Turkey region GR fit.
+    /// Absent when the forecast service has not run yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mc_region: Option<f64>,
+    /// Number of distinct mainshocks with an ETAS forecast computed in the
+    /// last 7 days.
+    pub active_sequences: i64,
+    /// Model version string from the most recently computed ETAS forecast.
+    /// Absent when no ETAS runs have been completed yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forecast_model_version: Option<String>,
+}
+
+/// Phase 3 supplementary fields fetched alongside band stats.
+///
+/// Returned from a single async DB call in `db::get_phase3_stats` and merged
+/// into [`StatsResponse`] by the stats handler.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct Phase3StatsFields {
+    pub b_value_region: Option<f64>,
+    pub mc_region: Option<f64>,
+    pub active_sequences: i64,
+    pub forecast_model_version: Option<String>,
 }
 
 /// Per-band statistics as stored in/returned from cache.

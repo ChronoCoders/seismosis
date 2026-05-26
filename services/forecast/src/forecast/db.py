@@ -184,34 +184,67 @@ class Database:
         daily_rates_json: str,
         params_snapshot_json: str,
         model_version: str,
+        spatial_heatmap_json: str | None = None,
     ) -> None:
-        query = """
-            INSERT INTO seismology.etas_forecasts (
-                mainshock_source_id,
-                horizon_days,
-                min_magnitude,
-                expected_count,
-                p_at_least_one,
-                p_exceedance,
-                daily_rates,
-                params_snapshot,
-                model_version,
-                computed_at
-            ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, NOW())
-        """
-        async with self._pool.acquire() as conn:
-            await conn.execute(
-                query,
-                mainshock_source_id,
-                horizon_days,
-                min_magnitude,
-                expected_count,
-                p_at_least_one,
-                p_exceedance_json,
-                daily_rates_json,
-                params_snapshot_json,
-                model_version,
-            )
+        if spatial_heatmap_json is not None:
+            query = """
+                INSERT INTO seismology.etas_forecasts (
+                    mainshock_source_id,
+                    horizon_days,
+                    min_magnitude,
+                    expected_count,
+                    p_at_least_one,
+                    p_exceedance,
+                    daily_rates,
+                    params_snapshot,
+                    model_version,
+                    spatial_heatmap,
+                    computed_at
+                ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb, NOW())
+            """
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    mainshock_source_id,
+                    horizon_days,
+                    min_magnitude,
+                    expected_count,
+                    p_at_least_one,
+                    p_exceedance_json,
+                    daily_rates_json,
+                    params_snapshot_json,
+                    model_version,
+                    spatial_heatmap_json,
+                )
+        else:
+            query = """
+                INSERT INTO seismology.etas_forecasts (
+                    mainshock_source_id,
+                    horizon_days,
+                    min_magnitude,
+                    expected_count,
+                    p_at_least_one,
+                    p_exceedance,
+                    daily_rates,
+                    params_snapshot,
+                    model_version,
+                    spatial_heatmap,
+                    computed_at
+                ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, NULL, NOW())
+            """
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    query,
+                    mainshock_source_id,
+                    horizon_days,
+                    min_magnitude,
+                    expected_count,
+                    p_at_least_one,
+                    p_exceedance_json,
+                    daily_rates_json,
+                    params_snapshot_json,
+                    model_version,
+                )
 
     async def upsert_gr_analysis(
         self,

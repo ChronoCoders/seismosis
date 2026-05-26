@@ -24,6 +24,9 @@ _MC_DEFAULT: float = 1.5
 _N_MIN_FIT: int = 10
 _N_MAX_CATALOG: int = 3_000
 
+# Earth radius for Haversine distance computation
+_EARTH_RADIUS_KM: float = 6371.0
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -37,9 +40,11 @@ class EtasParams:
     alpha: float   # magnitude scaling
     c: float       # Omori time offset [days]
     p: float       # Omori decay exponent (>1)
+    d: float = 0.01  # spatial offset [km] — prevents singularity at r=0
+    q: float = 1.5   # spatial decay exponent
 
 
-@dataclass(frozen=True)
+@dataclass
 class EtasResult:
     expected_count: float
     p_at_least_one: float
@@ -48,13 +53,14 @@ class EtasResult:
     params: EtasParams
     n_catalog: int
     model_version: str
+    spatial_heatmap: dict[str, Any] | None = field(default=None)
 
 
 # ---------------------------------------------------------------------------
 # Default / fallback parameters
 # ---------------------------------------------------------------------------
 
-_DEFAULT_PARAMS = EtasParams(mu=0.05, K=0.1, alpha=1.5, c=0.01, p=1.1)
+_DEFAULT_PARAMS = EtasParams(mu=0.05, K=0.1, alpha=1.5, c=0.01, p=1.1, d=0.01, q=1.5)
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +211,167 @@ def _omori_integral(
 
 
 # ---------------------------------------------------------------------------
+# Haversine distance helper
+# ---------------------------------------------------------------------------
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return the great-circle distance between two points in kilometres."""
+    phi1: float = math.radians(lat1)
+    phi2: float = math.radians(lat2)
+    dphi: float = math.radians(lat2 - lat1)
+    dlam: float = math.radians(lon2 - lon1)
+    a: float = (
+        math.sin(dphi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2.0) ** 2
+    )
+    return 2.0 * _EARTH_RADIUS_KM * math.asin(math.sqrt(min(a, 1.0)))
+
+
+# ---------------------------------------------------------------------------
+# Spatial ETAS-S heatmap
+# ---------------------------------------------------------------------------
+
+
+def compute_spatial_heatmap(
+    mainshock_lat: float,
+    mainshock_lon: float,
+    mainshock_mag: float,
+    mainshock_time: datetime,
+    catalog_times: list[datetime],
+    catalog_mags: list[float],
+    catalog_lats: list[float],
+    catalog_lons: list[float],
+    params: EtasParams,
+    horizon_days: int = 30,
+    grid_spacing_deg: float = 0.1,
+    grid_radius_deg: float = 2.0,
+) -> dict[str, Any]:
+    """Compute an ETAS-S spatial aftershock rate heatmap.
+
+    Builds a regular lat/lon grid centred on *mainshock_lat/lon* and computes
+    the integrated aftershock rate for each cell over *horizon_days* using the
+    spatial ETAS-S conditional rate:
+
+        λ(t, r) = µ + Σᵢ K·exp(α·Δm) / (t−tᵢ+c)^p · (r²+d²)^{−q}
+
+    Returns a GeoJSON FeatureCollection.  Each Feature is a 0.1° × 0.1° cell
+    polygon with properties ``{probability, expected_count, lat, lon}``.
+    """
+    ms_time: datetime = mainshock_time
+    if ms_time.tzinfo is None:
+        ms_time = ms_time.replace(tzinfo=timezone.utc)
+
+    # ------------------------------------------------------------------ #
+    # Build normalised catalog arrays (days since mainshock, above mc=1.5)
+    # ------------------------------------------------------------------ #
+    _mc: float = 1.5
+    cat_t_days: list[float] = []
+    cat_m: list[float] = []
+    cat_la: list[float] = []
+    cat_lo: list[float] = []
+
+    for ct, cm, cla, clo in zip(catalog_times, catalog_mags, catalog_lats, catalog_lons):
+        t: datetime = ct
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        if cm >= _mc:
+            cat_t_days.append((t - ms_time).total_seconds() / 86_400.0)
+            cat_m.append(cm)
+            cat_la.append(cla)
+            cat_lo.append(clo)
+
+    n_cat: int = len(cat_t_days)
+    T_days: float = max(cat_t_days) if n_cat > 0 else 0.0
+
+    # κᵢ = K · exp(α · (mᵢ − mc))
+    kappas: list[float] = [
+        params.K * math.exp(params.alpha * (cat_m[i] - _mc))
+        for i in range(n_cat)
+    ]
+
+    # ------------------------------------------------------------------ #
+    # Build grid
+    # ------------------------------------------------------------------ #
+    half: float = grid_radius_deg
+    step: float = grid_spacing_deg
+
+    # Grid cell south-west corners
+    lat_sw_values: list[float] = []
+    v: float = mainshock_lat - half
+    while v + step <= mainshock_lat + half + 1e-9:
+        lat_sw_values.append(v)
+        v += step
+
+    lon_sw_values: list[float] = []
+    v = mainshock_lon - half
+    while v + step <= mainshock_lon + half + 1e-9:
+        lon_sw_values.append(v)
+        v += step
+
+    features: list[dict[str, Any]] = []
+
+    for lat_sw in lat_sw_values:
+        lat_ne: float = lat_sw + step
+        cell_lat: float = lat_sw + step / 2.0  # cell centroid latitude
+
+        for lon_sw in lon_sw_values:
+            lon_ne: float = lon_sw + step
+            cell_lon: float = lon_sw + step / 2.0
+
+            # ---------------------------------------------------------- #
+            # Integrated rate at this cell over [T, T+horizon_days]
+            # ---------------------------------------------------------- #
+            # Background contribution
+            lambda_cell: float = params.mu * float(horizon_days)
+
+            # Aftershock contribution from each catalog event
+            for i in range(n_cat):
+                r_km: float = _haversine_km(cell_lat, cell_lon, cat_la[i], cat_lo[i])
+                spatial_factor: float = (r_km ** 2 + params.d ** 2) ** (-params.q)
+
+                # Temporal integral: ∫_T^{T+H} (t - tᵢ + c)^{-p} dt
+                offset_i: float = T_days - cat_t_days[i]
+                time_integral: float = _omori_integral(
+                    offset_i, float(horizon_days), params.c, params.p
+                )
+
+                lambda_cell += kappas[i] * time_integral * spatial_factor
+
+            # Clamp for numerical stability before converting to probability
+            expected_count: float = max(0.0, min(lambda_cell, 100.0))
+            probability: float = 1.0 - math.exp(-expected_count)
+
+            # GeoJSON polygon (counter-clockwise ring)
+            coordinates: list[list[list[float]]] = [[
+                [lon_sw, lat_sw],
+                [lon_ne, lat_sw],
+                [lon_ne, lat_ne],
+                [lon_sw, lat_ne],
+                [lon_sw, lat_sw],
+            ]]
+
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": coordinates,
+                },
+                "properties": {
+                    "probability": probability,
+                    "expected_count": expected_count,
+                    "lat": cell_lat,
+                    "lon": cell_lon,
+                },
+            })
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main forecast function
 # ---------------------------------------------------------------------------
 
@@ -217,6 +384,10 @@ def forecast(
     mc: float = 1.5,
     horizon_days: int = 30,
     min_forecast_mag: float = 1.0,
+    catalog_lats: Sequence[float] | None = None,
+    catalog_lons: Sequence[float] | None = None,
+    mainshock_lat: float | None = None,
+    mainshock_lon: float | None = None,
 ) -> EtasResult:
     """Generate an ETAS aftershock forecast for *mainshock_time*.
 
@@ -236,6 +407,16 @@ def forecast(
         Forecast horizon in days.
     min_forecast_mag:
         Minimum magnitude threshold for the forecast output.
+    catalog_lats:
+        Optional sequence of catalogue event latitudes.  When provided together
+        with *catalog_lons* and *mainshock_lat/lon*, the spatial ETAS-S heatmap
+        is computed and attached to ``EtasResult.spatial_heatmap``.
+    catalog_lons:
+        Optional sequence of catalogue event longitudes.
+    mainshock_lat:
+        Latitude of the mainshock (required for spatial heatmap).
+    mainshock_lon:
+        Longitude of the mainshock (required for spatial heatmap).
     """
     ms_time: datetime = mainshock_time
     if ms_time.tzinfo is None:
@@ -319,6 +500,30 @@ def forecast(
         exp_at_thresh: float = expected_count_at_mc * scale_thresh
         p_exceedance[str(m_thresh)] = 1.0 - math.exp(-max(0.0, exp_at_thresh))
 
+    # ------------------------------------------------------------------ #
+    # Spatial heatmap (ETAS-S extension)
+    # ------------------------------------------------------------------ #
+    spatial_heatmap: dict[str, Any] | None = None
+    if (
+        catalog_lats is not None
+        and catalog_lons is not None
+        and mainshock_lat is not None
+        and mainshock_lon is not None
+        and len(catalog_lats) > 0
+    ):
+        spatial_heatmap = compute_spatial_heatmap(
+            mainshock_lat=mainshock_lat,
+            mainshock_lon=mainshock_lon,
+            mainshock_mag=mainshock_mag,
+            mainshock_time=mainshock_time,
+            catalog_times=list(catalog_times),
+            catalog_mags=list(catalog_mags),
+            catalog_lats=list(catalog_lats),
+            catalog_lons=list(catalog_lons),
+            params=params,
+            horizon_days=horizon_days,
+        )
+
     return EtasResult(
         expected_count=expected_count,
         p_at_least_one=p_at_least_one,
@@ -327,4 +532,5 @@ def forecast(
         params=params,
         n_catalog=n_catalog,
         model_version=MODEL_VERSION,
+        spatial_heatmap=spatial_heatmap,
     )

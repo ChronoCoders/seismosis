@@ -201,23 +201,37 @@ function ModelConfidencePanel({ gr }: { gr: GrAnalysis | null }) {
 
 // ── ForecastPage ──────────────────────────────────────────────────────────────
 
+const PERIOD_OPTIONS = [
+  { label: '7 gün',  value: 7  },
+  { label: '30 gün', value: 30 },
+  { label: '90 gün', value: 90 },
+] as const;
+
+const MAG_OPTIONS = [
+  { label: 'M≥2.0', value: 2.0 },
+  { label: 'M≥3.0', value: 3.0 },
+  { label: 'M≥4.0', value: 4.0 },
+] as const;
+
 export function ForecastPage() {
   const [loading, setLoading]           = useState(true);
   const [events, setEvents]             = useState<EarthquakeEvent[]>([]);
   const [forecasts, setForecasts]       = useState<Map<string, AftershockForecast>>(new Map());
   const [grAnalysis, setGrAnalysis]     = useState<GrAnalysis | null>(null);
   const [grMap, setGrMap]               = useState<GrMapResponse | null>(null);
+  const [period, setPeriod]             = useState<number>(30);
+  const [minMag, setMinMag]             = useState<number>(4.0);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        // Parallel: M≥4.0 events, GR analysis, GR map (regional forecast unused in heatmap if empty)
+        // Parallel: M≥minMag events, GR analysis, GR map, regional forecast
         const [evResp, grA, grM] = await Promise.allSettled([
-          fetchEvents({ min_magnitude: 4.0, page_size: 10 }),
+          fetchEvents({ min_magnitude: minMag, page_size: 10 }),
           fetchGrAnalysis(),
-          fetchGrMap(),
-          fetchRegionalForecast({ horizon_days: 30 }).catch(() => null),
+          fetchGrMap({ min_magnitude: minMag }),
+          fetchRegionalForecast({ horizon_days: period, min_magnitude: minMag }).catch(() => null),
         ]);
 
         const evList = evResp.status === 'fulfilled' ? evResp.value.events : [];
@@ -246,7 +260,7 @@ export function ForecastPage() {
       }
     }
     void load();
-  }, []);
+  }, [period, minMag]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -261,9 +275,47 @@ export function ForecastPage() {
             </p>
           </div>
         </div>
-        {loading && (
-          <span className="text-[10px] font-mono text-[#575c6e] animate-pulse">Yükleniyor…</span>
-        )}
+
+        {/* Filter controls */}
+        <div className="flex items-center gap-3">
+          {/* Period selector */}
+          <div className="flex items-center gap-1">
+            {PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPeriod(opt.value)}
+                className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${
+                  period === opt.value
+                    ? 'bg-[#4a90e2] text-white'
+                    : 'bg-[#232736] text-[#8b90a2] hover:bg-[#2c3044] hover:text-[#e2e4ed]'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Magnitude selector */}
+          <div className="flex items-center gap-1">
+            {MAG_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setMinMag(opt.value)}
+                className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${
+                  minMag === opt.value
+                    ? 'bg-[#4a90e2] text-white'
+                    : 'bg-[#232736] text-[#8b90a2] hover:bg-[#2c3044] hover:text-[#e2e4ed]'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {loading && (
+            <span className="text-[10px] font-mono text-[#575c6e] animate-pulse">Yükleniyor…</span>
+          )}
+        </div>
       </div>
 
       {/* 2×2 grid */}

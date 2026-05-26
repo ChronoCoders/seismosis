@@ -101,6 +101,15 @@ ENRICHED_SCHEMA: dict[str, Any] = {
             "type": {"type": "long", "logicalType": "timestamp-millis"},
         },
         {"name": "analysis_version", "type": "string"},
+        {
+            "name": "shakemap",
+            "type": ["null", "bytes"],
+            "default": None,
+            "doc": (
+                "USGS ShakeMap GeoJSON encoded as UTF-8 bytes, present for events "
+                "M≥3.5 where ShakeMap data is available.  Null otherwise."
+            ),
+        },
     ],
 }
 

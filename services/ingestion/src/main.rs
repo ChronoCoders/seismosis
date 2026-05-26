@@ -44,7 +44,11 @@ use metrics::Metrics;
 use producer::EventProducer;
 use registry::SchemaRegistryClient;
 use sources::{
-    afad::AfadSource, emsc::EmscSource, fdsn::FdsnSource, usgs::UsgsSource, SeismicSource,
+    afad::AfadSource,
+    emsc::EmscSource,
+    fdsn::{FdsnSource, FdsnSourceConfig},
+    usgs::UsgsSource,
+    SeismicSource,
 };
 
 #[tokio::main(flavor = "multi_thread")]
@@ -149,31 +153,85 @@ async fn main() -> anyhow::Result<()> {
         )),
     ];
 
-    // Optional FDSN network sources — disabled by default; enable via env var.
-    if std::env::var("FDSN_GFZ_ENABLED").as_deref() == Ok("true") {
-        info!("FDSN GFZ source enabled");
-        sources.push(Box::new(FdsnSource::new(
-            "GFZ",
-            "gfz",
-            std::env::var("FDSN_GFZ_BASE_URL")
-                .unwrap_or_else(|_| "https://geofon.gfz-potsdam.de".into()),
-            http_client.clone(),
-            Arc::clone(&config),
-            Arc::clone(&metrics),
-        )));
-    }
+    // Optional FDSN network sources.
+    //
+    // Priority: if `FDSN_SOURCES` is set and non-empty, parse it as a JSON array of
+    // objects `[{"name":"GFZ","prefix":"gfz","base_url":"https://..."}]` and register
+    // one FdsnSource per entry. This supersedes the per-network flags below.
+    //
+    // Fallback (backward-compatible): use the individual `FDSN_*_ENABLED` flags.
+    let fdsn_sources_env = std::env::var("FDSN_SOURCES").unwrap_or_default();
+    if !fdsn_sources_env.trim().is_empty() {
+        #[derive(serde::Deserialize)]
+        struct FdsnEntry {
+            name: String,
+            prefix: String,
+            base_url: String,
+        }
+        match serde_json::from_str::<Vec<FdsnEntry>>(&fdsn_sources_env) {
+            Ok(entries) => {
+                for entry in entries {
+                    let label = entry.name.clone();
+                    let cfg = FdsnSourceConfig {
+                        name: entry.name,
+                        prefix: entry.prefix,
+                        base_url: entry.base_url,
+                    };
+                    info!(source = %label, "FDSN source enabled via FDSN_SOURCES");
+                    sources.push(Box::new(FdsnSource::from_config(
+                        cfg,
+                        http_client.clone(),
+                        Arc::clone(&config),
+                        Arc::clone(&metrics),
+                    )));
+                }
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "FDSN_SOURCES is set but could not be parsed as a JSON array: {e}"
+                );
+            }
+        }
+    } else {
+        // Fallback: individual enable flags (backward-compatible).
+        if std::env::var("FDSN_GFZ_ENABLED").as_deref() == Ok("true") {
+            info!("FDSN GFZ source enabled");
+            sources.push(Box::new(FdsnSource::new(
+                "GFZ",
+                "gfz",
+                std::env::var("FDSN_GFZ_BASE_URL")
+                    .unwrap_or_else(|_| "https://geofon.gfz-potsdam.de".into()),
+                http_client.clone(),
+                Arc::clone(&config),
+                Arc::clone(&metrics),
+            )));
+        }
 
-    if std::env::var("FDSN_INGV_ENABLED").as_deref() == Ok("true") {
-        info!("FDSN INGV source enabled");
-        sources.push(Box::new(FdsnSource::new(
-            "INGV",
-            "ingv",
-            std::env::var("FDSN_INGV_BASE_URL")
-                .unwrap_or_else(|_| "https://webservices.ingv.it".into()),
-            http_client.clone(),
-            Arc::clone(&config),
-            Arc::clone(&metrics),
-        )));
+        if std::env::var("FDSN_INGV_ENABLED").as_deref() == Ok("true") {
+            info!("FDSN INGV source enabled");
+            sources.push(Box::new(FdsnSource::new(
+                "INGV",
+                "ingv",
+                std::env::var("FDSN_INGV_BASE_URL")
+                    .unwrap_or_else(|_| "https://webservices.ingv.it".into()),
+                http_client.clone(),
+                Arc::clone(&config),
+                Arc::clone(&metrics),
+            )));
+        }
+
+        if std::env::var("FDSN_NIED_ENABLED").as_deref() == Ok("true") {
+            info!("FDSN NIED source enabled");
+            sources.push(Box::new(FdsnSource::new(
+                "NIED",
+                "nied",
+                std::env::var("FDSN_NIED_BASE_URL")
+                    .unwrap_or_else(|_| "https://www.fnet.bosai.go.jp".into()),
+                http_client.clone(),
+                Arc::clone(&config),
+                Arc::clone(&metrics),
+            )));
+        }
     }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);

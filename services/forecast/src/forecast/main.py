@@ -29,9 +29,11 @@ from prometheus_client import (
     generate_latest,
 )
 
+from .cache import ForecastCache
 from .classifier import SeismicClassifier
 from .db import CatalogEvent, Database
 from .etas import forecast as etas_forecast
+from .producer import ForecastProducer
 from .gutenberg_richter import (
     GrResult,
     analyze_catalog,
@@ -60,6 +62,9 @@ class ServiceConfig:
     min_mag: float
     etas_min_mag: float
     horizon_days: int
+    kafka_brokers: str = ""
+    schema_registry_url: str = ""
+    redis_url: str = ""
 
 
 def _load_config() -> ServiceConfig:
@@ -77,6 +82,9 @@ def _load_config() -> ServiceConfig:
         min_mag=float(os.environ.get("MIN_MAG", "1.5")),
         etas_min_mag=float(os.environ.get("ETAS_MIN_MAG", "4.0")),
         horizon_days=int(os.environ.get("HORIZON_DAYS", "30")),
+        kafka_brokers=os.environ.get("KAFKA_BROKERS", ""),
+        schema_registry_url=os.environ.get("SCHEMA_REGISTRY_URL", ""),
+        redis_url=os.environ.get("REDIS_URL", ""),
     )
 
 
@@ -292,6 +300,8 @@ async def run_etas_forecasts(
 
                 catalog_times = [e.event_time for e in nearby]
                 catalog_mags = [e.magnitude for e in nearby]
+                catalog_lats = [e.latitude for e in nearby]
+                catalog_lons = [e.longitude for e in nearby]
 
                 result = etas_forecast(
                     mainshock_time=mainshock.event_time,
@@ -299,6 +309,10 @@ async def run_etas_forecasts(
                     catalog_times=catalog_times,
                     catalog_mags=catalog_mags,
                     horizon_days=config.horizon_days,
+                    catalog_lats=catalog_lats,
+                    catalog_lons=catalog_lons,
+                    mainshock_lat=mainshock.latitude,
+                    mainshock_lon=mainshock.longitude,
                 )
 
                 params_snapshot: dict[str, float] = {
@@ -308,6 +322,12 @@ async def run_etas_forecasts(
                     "c": result.params.c,
                     "p": result.params.p,
                 }
+
+                spatial_heatmap_json: str | None = (
+                    json.dumps(result.spatial_heatmap)
+                    if result.spatial_heatmap is not None
+                    else None
+                )
 
                 await db.upsert_etas_forecast(
                     mainshock_source_id=mainshock.source_id,
@@ -319,6 +339,7 @@ async def run_etas_forecasts(
                     daily_rates_json=json.dumps(result.daily_rates),
                     params_snapshot_json=json.dumps(params_snapshot),
                     model_version=result.model_version,
+                    spatial_heatmap_json=spatial_heatmap_json,
                 )
                 metrics.etas_computed.inc()
                 computed += 1
@@ -442,6 +463,7 @@ async def main_loop(
     metrics: Metrics,
     logger: Any,
     config: ServiceConfig,
+    producer: ForecastProducer | None = None,
 ) -> None:
     classifier = SeismicClassifier()
 
@@ -476,6 +498,13 @@ async def main_loop(
         if now_mono - last_classifier >= classifier_interval_s:
             await run_classifier(db, metrics, logger, classifier, config)
             last_classifier = time.monotonic()
+
+        # Drain the producer send buffer at the end of every cycle so messages
+        # are not held in the librdkafka queue indefinitely.  This is a no-op
+        # when the producer is disabled (confluent_kafka not installed or
+        # KAFKA_BROKERS not set).
+        if producer is not None:
+            producer.flush(timeout_secs=5.0)
 
         elapsed: float = time.monotonic() - cycle_start
         sleep_s: float = max(0.0, 60.0 - elapsed)
@@ -519,20 +548,44 @@ def main() -> None:
     start_metrics_server(config.metrics_port, registry)
     logger.info("metrics_server.started", port=config.metrics_port)
 
+    # Initialise Kafka producer (optional — no-op if KAFKA_BROKERS is empty)
+    producer: ForecastProducer | None = None
+    if config.kafka_brokers:
+        producer = ForecastProducer(
+            kafka_brokers=config.kafka_brokers,
+            schema_registry_url=config.schema_registry_url,
+        )
+    else:
+        logger.info("forecast_producer.skipped", reason="KAFKA_BROKERS not set")
+
+    # Initialise Redis cache (non-fatal if Redis is unavailable)
+    cache: ForecastCache | None = None
+    if config.redis_url:
+        cache = ForecastCache(config.redis_url)
+        logger.info("forecast_cache.initialised", redis_url=config.redis_url)
+    else:
+        logger.info("forecast_cache.disabled", reason="REDIS_URL not set")
+
     # Connect DB and run
     async def _run() -> None:
         db: Database = await Database.connect(config.database_url)
         logger.info("database.connected")
         try:
-            await main_loop(db, metrics, logger, config)
+            await main_loop(db, metrics, logger, config, producer)
         finally:
             await db.close()
             logger.info("database.closed")
+            if cache is not None:
+                cache.close()
+                logger.info("forecast_cache.closed")
 
     try:
         asyncio.run(_run())
     except KeyboardInterrupt:
         logger.info("forecast.shutdown")
+    finally:
+        if producer is not None:
+            producer.close()
 
 
 if __name__ == "__main__":
