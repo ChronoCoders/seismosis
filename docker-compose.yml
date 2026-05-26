@@ -628,7 +628,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "wget --quiet --tries=1 --spider http://localhost:9098/health || exit 1"
+        - "wget --quiet --tries=1 -O /dev/null http://localhost:9098/health || exit 1"
       interval: 30s
       timeout: 10s
       retries: 3
