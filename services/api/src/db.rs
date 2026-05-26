@@ -1,4 +1,6 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -7,7 +9,6 @@ use crate::model::{BandStats, EventResponse, EventsQuery};
 
 /// Flat row returned by the events list query.
 ///
-/// `total` is a window-function count of all matching rows (before pagination).
 /// `latitude` and `longitude` are extracted from the PostGIS geometry column
 /// via `ST_Y(location)::float8` and `ST_X(location)::float8` respectively.
 #[derive(sqlx::FromRow)]
@@ -25,12 +26,15 @@ struct EventRow {
     quality_indicator: String,
     processed_at: DateTime<Utc>,
     pipeline_version: String,
-    /// COUNT(*) OVER() — total matching rows before LIMIT/OFFSET.
+    /// Carries 1::bigint for the single-row `get_event_by_source_id` path.
     total: i64,
 }
 
 impl From<EventRow> for EventResponse {
     fn from(r: EventRow) -> Self {
+        // `total` is selected as `1::bigint` in the single-row query to satisfy
+        // the shared struct layout required by sqlx's FromRow derive.
+        let _ = r.total;
         EventResponse {
             id: r.id,
             source_id: r.source_id,
@@ -49,23 +53,95 @@ impl From<EventRow> for EventResponse {
     }
 }
 
-/// Build the SQL for a paginated, filtered events query.
+/// Flat row for the cursor-based list query (no `total` window function).
+#[derive(sqlx::FromRow)]
+struct CursorRow {
+    id: Uuid,
+    source_id: String,
+    source_network: String,
+    event_time: DateTime<Utc>,
+    latitude: f64,
+    longitude: f64,
+    depth_km: Option<f64>,
+    magnitude: f64,
+    magnitude_type: String,
+    region_name: Option<String>,
+    quality_indicator: String,
+    processed_at: DateTime<Utc>,
+    pipeline_version: String,
+}
+
+impl From<CursorRow> for EventResponse {
+    fn from(r: CursorRow) -> Self {
+        EventResponse {
+            id: r.id,
+            source_id: r.source_id,
+            source_network: r.source_network,
+            event_time: r.event_time,
+            latitude: r.latitude,
+            longitude: r.longitude,
+            depth_km: r.depth_km,
+            magnitude: r.magnitude,
+            magnitude_type: r.magnitude_type,
+            region_name: r.region_name,
+            quality_indicator: r.quality_indicator,
+            processed_at: r.processed_at,
+            pipeline_version: r.pipeline_version,
+        }
+    }
+}
+
+/// Decoded pagination cursor.
+pub(crate) struct ParsedCursor {
+    pub(crate) event_time: DateTime<Utc>,
+    pub(crate) source_id: String,
+}
+
+/// JSON payload stored inside the base64url cursor token.
+#[derive(Serialize, Deserialize)]
+struct CursorPayload {
+    et: DateTime<Utc>,
+    sid: String,
+}
+
+/// Decode a base64url cursor string into a `ParsedCursor`.
+/// Returns `None` for any malformed input.
+pub(crate) fn decode_cursor(s: &str) -> Option<ParsedCursor> {
+    let bytes = URL_SAFE_NO_PAD.decode(s).ok()?;
+    let payload: CursorPayload = serde_json::from_slice(&bytes).ok()?;
+    Some(ParsedCursor {
+        event_time: payload.et,
+        source_id: payload.sid,
+    })
+}
+
+/// Encode a cursor from the last row's `event_time` and `source_id`.
+fn encode_cursor(event_time: DateTime<Utc>, source_id: &str) -> String {
+    let payload = CursorPayload {
+        et: event_time,
+        sid: source_id.to_owned(),
+    };
+    let json = serde_json::to_vec(&payload).expect("CursorPayload always serialises");
+    URL_SAFE_NO_PAD.encode(json)
+}
+
+/// Build the SQL for a paginated, filtered events query using keyset cursor
+/// pagination.
+///
+/// Fetches `page_size` rows ordered by `(event_time DESC, source_id DESC)`.
+/// When `cursor` is provided, adds a WHERE clause that excludes all rows at or
+/// before the cursor position, ensuring stable forward pagination without
+/// duplicate or skipped rows as new events arrive.
+///
+/// The caller is responsible for fetching `page_size + 1` rows (to detect
+/// `has_more`) by passing that inflated count as `page_size`.
 ///
 /// Extracted so that the SQL can be inspected in tests without a live database.
-/// Returns the `QueryBuilder` with all bind parameters attached; callers execute
-/// it with `.build_query_as().fetch_all(pool)`.
-///
-/// `page` and `page_size` must already be clamped by the caller (the route
-/// handler is the single place that enforces those bounds).
-pub(crate) fn build_list_events_query(
-    query: &EventsQuery,
-    page: u32,
+pub(crate) fn build_list_events_query<'a>(
+    query: &'a EventsQuery,
+    cursor: Option<&'a ParsedCursor>,
     page_size: u32,
-) -> sqlx::QueryBuilder<'_, sqlx::Postgres> {
-    let offset = (page - 1) as i64 * page_size as i64;
-
-    // Build the query dynamically so that absent filters don't appear as
-    // IS NOT NULL constraints and can use the table's indexes cleanly.
+) -> sqlx::QueryBuilder<'a, sqlx::Postgres> {
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         r#"SELECT
             id,
@@ -80,8 +156,7 @@ pub(crate) fn build_list_events_query(
             region_name,
             quality_indicator,
             processed_at,
-            pipeline_version,
-            COUNT(*) OVER() AS total
+            pipeline_version
         FROM seismology.seismic_events
         WHERE TRUE"#,
     );
@@ -114,38 +189,56 @@ pub(crate) fn build_list_events_query(
             .push(", 4326)");
     }
 
-    qb.push(" ORDER BY event_time DESC LIMIT ")
-        .push_bind(page_size as i64)
-        .push(" OFFSET ")
-        .push_bind(offset);
+    // Keyset cursor: skip all rows that are at or before the cursor position.
+    // The compound condition (event_time < $et) OR (event_time = $et AND source_id < $sid)
+    // correctly handles ties in event_time without skipping or duplicating rows.
+    if let Some(c) = cursor {
+        qb.push(" AND (event_time < ")
+            .push_bind(c.event_time)
+            .push(" OR (event_time = ")
+            .push_bind(c.event_time)
+            .push(" AND source_id < ")
+            .push_bind(c.source_id.clone())
+            .push("))");
+    }
+
+    qb.push(" ORDER BY event_time DESC, source_id DESC LIMIT ")
+        .push_bind(page_size as i64);
 
     qb
 }
 
-/// Fetch a paginated, filtered list of events.
+/// Fetch a paginated, filtered list of events using keyset cursor pagination.
 ///
-/// Returns `(events, total_matching_rows)`. All filter parameters are optional;
-/// when absent the corresponding WHERE clause is omitted entirely.
-///
-/// `page` and `page_size` must already be clamped by the caller.
-///
-/// Bounding-box filtering uses PostGIS's `&&` operator (bbox overlap) against
-/// `ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326)`, which hits the
-/// spatial index on `location`.
+/// Returns `(events, has_more, next_cursor)`. Fetch one extra row internally
+/// to detect whether more results exist; `next_cursor` is only present when
+/// `has_more` is true.
 pub async fn list_events(
     pool: &PgPool,
     query: &EventsQuery,
-    page: u32,
+    cursor: Option<&ParsedCursor>,
     page_size: u32,
-) -> Result<(Vec<EventResponse>, i64), RequestError> {
-    let mut qb = build_list_events_query(query, page, page_size);
+) -> Result<(Vec<EventResponse>, bool, Option<String>), RequestError> {
+    // Fetch one extra row to detect has_more without a COUNT query.
+    let fetch_size = page_size.saturating_add(1);
+    let mut qb = build_list_events_query(query, cursor, fetch_size);
 
-    let rows: Vec<EventRow> = qb.build_query_as().fetch_all(pool).await?;
+    let mut rows: Vec<CursorRow> = qb.build_query_as().fetch_all(pool).await?;
 
-    let total = rows.first().map(|r| r.total).unwrap_or(0);
+    let has_more = rows.len() > page_size as usize;
+    if has_more {
+        rows.truncate(page_size as usize);
+    }
+
+    let next_cursor = if has_more {
+        rows.last()
+            .map(|r| encode_cursor(r.event_time, &r.source_id))
+    } else {
+        None
+    };
+
     let events = rows.into_iter().map(EventResponse::from).collect();
-
-    Ok((events, total))
+    Ok((events, has_more, next_cursor))
 }
 
 /// Fetch a single event by its external `source_id`.
@@ -366,7 +459,7 @@ mod tests {
 
     fn empty_query() -> EventsQuery {
         EventsQuery {
-            page: None,
+            cursor: None,
             page_size: None,
             start_time: None,
             end_time: None,
@@ -382,13 +475,64 @@ mod tests {
     #[test]
     fn no_filters_produces_no_extra_and_clauses() {
         let query = empty_query();
-        let qb = build_list_events_query(&query, 1, 50);
+        let qb = build_list_events_query(&query, None, 50);
         let sql = qb.sql();
-        // Only the structural WHERE TRUE should be present; no dynamic AND clauses.
         assert!(sql.contains("WHERE TRUE"));
         assert!(!sql.contains("AND event_time"));
         assert!(!sql.contains("AND magnitude"));
         assert!(!sql.contains("AND location"));
+    }
+
+    #[test]
+    fn no_cursor_produces_no_keyset_clause() {
+        let sql = build_list_events_query(&empty_query(), None, 25)
+            .sql()
+            .to_owned();
+        assert!(sql.contains("LIMIT "), "expected LIMIT clause");
+        assert!(
+            !sql.contains("OFFSET "),
+            "cursor pagination must not use OFFSET"
+        );
+        assert!(
+            !sql.contains("source_id <"),
+            "no cursor means no keyset clause"
+        );
+    }
+
+    #[test]
+    fn cursor_adds_keyset_clause() {
+        let cursor = ParsedCursor {
+            event_time: chrono::Utc::now(),
+            source_id: "test-id".to_owned(),
+        };
+        let sql = build_list_events_query(&empty_query(), Some(&cursor), 25)
+            .sql()
+            .to_owned();
+        assert!(
+            sql.contains("event_time <"),
+            "expected keyset time clause, got: {sql}"
+        );
+        assert!(
+            sql.contains("source_id <"),
+            "expected keyset id clause, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn cursor_roundtrip() {
+        let et = chrono::Utc::now();
+        let sid = "us6000abcd";
+        let encoded = encode_cursor(et, sid);
+        let decoded = decode_cursor(&encoded).expect("roundtrip must succeed");
+        // chrono serialises to microsecond precision; compare within 1 µs.
+        assert_eq!(decoded.event_time.timestamp_micros(), et.timestamp_micros());
+        assert_eq!(decoded.source_id, sid);
+    }
+
+    #[test]
+    fn invalid_cursor_returns_none() {
+        assert!(decode_cursor("!!!not-base64!!!").is_none());
+        assert!(decode_cursor("aGVsbG8=").is_none()); // valid base64 but not JSON cursor
     }
 
     #[test]
@@ -397,7 +541,7 @@ mod tests {
             start_time: Some(chrono::Utc::now()),
             ..empty_query()
         };
-        let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
+        let sql = build_list_events_query(&q, None, 50).sql().to_owned();
         assert!(
             sql.contains("AND event_time >= "),
             "expected start_time clause, got: {sql}"
@@ -410,7 +554,7 @@ mod tests {
             end_time: Some(chrono::Utc::now()),
             ..empty_query()
         };
-        let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
+        let sql = build_list_events_query(&q, None, 50).sql().to_owned();
         assert!(
             sql.contains("AND event_time <= "),
             "expected end_time clause, got: {sql}"
@@ -424,7 +568,7 @@ mod tests {
             max_magnitude: Some(7.0),
             ..empty_query()
         };
-        let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
+        let sql = build_list_events_query(&q, None, 50).sql().to_owned();
         assert!(
             sql.contains("AND magnitude >= "),
             "expected min_magnitude clause"
@@ -444,7 +588,7 @@ mod tests {
             max_lat: Some(72.0),
             ..empty_query()
         };
-        let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
+        let sql = build_list_events_query(&q, None, 50).sql().to_owned();
         assert!(
             sql.contains("ST_MakeEnvelope"),
             "expected ST_MakeEnvelope in bbox query, got: {sql}"
@@ -453,28 +597,14 @@ mod tests {
 
     #[test]
     fn partial_bbox_produces_no_spatial_clause() {
-        // When only some bbox params are present the handler already rejects the
-        // request. But even if called directly, the QueryBuilder should produce
-        // no spatial clause because the `if let (Some, Some, Some, Some)` guard
-        // won't match.
         let q = EventsQuery {
             min_lat: Some(35.0),
-            ..empty_query() // max_lat, min_lon, max_lon all None
+            ..empty_query()
         };
-        let sql = build_list_events_query(&q, 1, 50).sql().to_owned();
+        let sql = build_list_events_query(&q, None, 50).sql().to_owned();
         assert!(
             !sql.contains("ST_MakeEnvelope"),
             "partial bbox must not inject ST_MakeEnvelope, got: {sql}"
         );
-    }
-
-    #[test]
-    fn pagination_uses_supplied_page_and_page_size() {
-        let sql = build_list_events_query(&empty_query(), 3, 25)
-            .sql()
-            .to_owned();
-        // LIMIT and OFFSET placeholders appear in order as $N binds.
-        assert!(sql.contains("LIMIT "), "expected LIMIT clause");
-        assert!(sql.contains("OFFSET "), "expected OFFSET clause");
     }
 }

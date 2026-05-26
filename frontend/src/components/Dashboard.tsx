@@ -23,6 +23,7 @@ import {
   formatMagnitude,
   formatRelativeTime,
 } from '@/lib/magnitude';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 const EarthquakeMap = dynamic(() => import('@/components/MapInner'), {
   ssr: false,
@@ -502,7 +503,7 @@ export function Dashboard() {
   const loadData = useCallback(async () => {
     try {
       const [listResp, statsResp] = await Promise.all([
-        fetchEvents({ page_size: 50, page: 1 }),
+        fetchEvents({ page_size: 50 }),
         fetchStats(),
       ]);
       setEvents(listResp.events.map(apiEventToDisplay));
@@ -580,6 +581,7 @@ export function Dashboard() {
 
             {/* Left sidebar — shows second on mobile (below map) */}
             <aside className="w-full md:w-[268px] md:shrink-0 flex flex-col md:min-h-0 border-b md:border-b-0 md:border-r border-border bg-surface order-2 md:order-none">
+            <ErrorBoundary>
 
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
                 <div className="flex items-center gap-2">
@@ -618,6 +620,7 @@ export function Dashboard() {
                 <EarthquakeList events={filteredEvents.slice(0, 50)} />
               </div>
 
+            </ErrorBoundary>
             </aside>
 
             {/* Center map — shows first on mobile with a fixed min-height */}
@@ -639,19 +642,23 @@ export function Dashboard() {
                   Yükleniyor…
                 </div>
               ) : (
-                <EarthquakeMap events={filteredEvents} />
+                <ErrorBoundary>
+                  <EarthquakeMap events={filteredEvents} />
+                </ErrorBoundary>
               )}
             </main>
 
             {/* Right panel — hidden on mobile */}
             <aside className="hidden md:flex md:w-[268px] md:shrink-0 flex-col md:min-h-0 border-l border-border bg-surface order-3 md:order-none">
-              {bands.length === 0 ? (
-                <div className="flex items-center justify-center flex-1 text-text-muted text-sm">
-                  Yükleniyor…
-                </div>
-              ) : (
-                <RightStatsPanel bands={bands} alerts={alerts} />
-              )}
+              <ErrorBoundary>
+                {bands.length === 0 ? (
+                  <div className="flex items-center justify-center flex-1 text-text-muted text-sm">
+                    Yükleniyor…
+                  </div>
+                ) : (
+                  <RightStatsPanel bands={bands} alerts={alerts} />
+                )}
+              </ErrorBoundary>
             </aside>
 
           </div>

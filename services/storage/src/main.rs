@@ -53,11 +53,33 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("db: {}", e))?;
     info!("Database pool established");
 
+    // Optional Redis connection for API cache invalidation. Startup continues
+    // if Redis is unavailable — cache entries will expire naturally on their TTL.
+    let redis_conn: Option<redis::aio::ConnectionManager> = match &config.redis_url {
+        None => {
+            info!("REDIS_URL not set — cache invalidation disabled");
+            None
+        }
+        Some(url) => match redis::Client::open(url.as_str()) {
+            Err(e) => {
+                warn!(error = %e, "Redis client creation failed — cache invalidation disabled");
+                None
+            }
+            Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+                Ok(mgr) => {
+                    info!("Redis connection established for cache invalidation");
+                    Some(mgr)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Redis connection failed — cache invalidation disabled");
+                    None
+                }
+            },
+        },
+    };
+
     let registry_client = SchemaRegistryClient::new(config.schema_registry_url.clone())
         .map_err(|e| anyhow::anyhow!("schema registry: {}", e))?;
-    // Wrap in Arc so a future parallel-consumer refactor can share the decoder
-    // without unsafe code. The schema cache inside is already Arc<RwLock<…>>,
-    // so the only cost today is one extra heap allocation.
     let decoder = Arc::new(AvroDecoder::new(registry_client));
 
     let prom_registry = Registry::new();
@@ -105,7 +127,16 @@ async fn main() -> anyhow::Result<()> {
         let metrics = Arc::clone(&metrics);
         let topic = config.kafka_topic_raw.clone();
         tokio::spawn(async move {
-            consume_loop(consumer, decoder, pool, dlq, metrics, topic, shutdown_rx).await;
+            let ctx = ConsumeCtx {
+                consumer,
+                decoder,
+                pool,
+                dlq,
+                metrics,
+                topic,
+                redis_conn,
+            };
+            consume_loop(ctx, shutdown_rx).await;
         })
     };
 
@@ -130,17 +161,27 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn consume_loop(
+struct ConsumeCtx {
     consumer: StreamConsumer,
     decoder: Arc<AvroDecoder>,
     pool: sqlx::PgPool,
     dlq: DlqProducer,
     metrics: Arc<Metrics>,
     topic: String,
-    mut shutdown: watch::Receiver<bool>,
-) {
+    redis_conn: Option<redis::aio::ConnectionManager>,
+}
+
+async fn consume_loop(ctx: ConsumeCtx, mut shutdown: watch::Receiver<bool>) {
+    let ConsumeCtx {
+        consumer,
+        decoder,
+        pool,
+        dlq,
+        metrics,
+        topic,
+        redis_conn,
+    } = ctx;
     loop {
-        // Check for shutdown before blocking on recv().
         if *shutdown.borrow() {
             break;
         }
@@ -193,7 +234,8 @@ async fn consume_loop(
             .inc();
 
         let msg_start = Instant::now();
-        let process_result = process_message(payload, &decoder, &pool, &metrics).await;
+        let process_result =
+            process_message(payload, &decoder, &pool, &metrics, redis_conn.clone()).await;
 
         // Observe immediately after process_message — captures only decode +
         // validate + upsert time. DLQ delivery (up to ~7.5 s under full retry)
@@ -210,11 +252,7 @@ async fn consume_loop(
         //           idempotent, so a reprocessed message that succeeds next time
         //           is safe.
         let should_commit = match process_result {
-            Ok(()) => {
-                // events_upserted_total incremented inside upsert_event (db.rs)
-                // with the magnitude_class label attached.
-                true
-            }
+            Ok(()) => true,
             Err(err) => {
                 // For wire/decode failures we have no decoded key; fall back to
                 // the raw Kafka message key set by the ingestion producer.
@@ -268,12 +306,35 @@ async fn process_message(
     decoder: &AvroDecoder,
     pool: &sqlx::PgPool,
     metrics: &Metrics,
+    redis: Option<redis::aio::ConnectionManager>,
 ) -> Result<(), error::ProcessError> {
     let raw = decoder.decode(payload).await?;
-
     let event = raw.validate()?;
 
-    db::upsert_event(pool, &event, metrics).await?;
+    // Cross-source deduplication: if an event from a different source network
+    // already exists within 30 s and 0.5° of this one, skip the lower-quality
+    // duplicate rather than storing two records for the same physical earthquake.
+    if let Some(existing) = db::find_cross_source_match(pool, &event).await? {
+        let incoming_rank = db::quality_rank(&event.quality_indicator);
+        let existing_rank = db::quality_rank(&existing.quality_indicator);
+
+        if incoming_rank <= existing_rank {
+            metrics
+                .cross_source_duplicates_total
+                .with_label_values(&[&event.source_network])
+                .inc();
+            tracing::debug!(
+                incoming_source_id = %event.source_id,
+                existing_source_id = %existing.source_id,
+                incoming_quality = %event.quality_indicator,
+                existing_quality = %existing.quality_indicator,
+                "Cross-source duplicate — skipping lower-quality event"
+            );
+            return Ok(());
+        }
+    }
+
+    db::upsert_event(pool, &event, metrics, redis).await?;
 
     Ok(())
 }

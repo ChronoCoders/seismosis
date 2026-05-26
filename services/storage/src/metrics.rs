@@ -23,6 +23,11 @@ pub struct Metrics {
 
     /// PostgreSQL `upsert_event` call latency.
     pub db_write_duration_seconds: HistogramVec,
+
+    /// Events skipped because a matching event from another source network
+    /// already exists within the 30 s / 0.5° deduplication window and has
+    /// equal or better quality.
+    pub cross_source_duplicates_total: CounterVec,
 }
 
 impl Metrics {
@@ -69,12 +74,21 @@ impl Metrics {
         )
         .map_err(|e| StorageError::Metrics(e.to_string()))?;
 
+        let cross_source_duplicates_total = register_counter_vec_with_registry!(
+            "seismosis_storage_cross_source_duplicates_total",
+            "Events skipped due to a cross-source proximity match with equal or better quality",
+            &["incoming_network"],
+            registry
+        )
+        .map_err(|e| StorageError::Metrics(e.to_string()))?;
+
         Ok(Self {
             messages_consumed_total,
             events_upserted_total,
             events_dead_letter_total,
             processing_duration_seconds,
             db_write_duration_seconds,
+            cross_source_duplicates_total,
         })
     }
 }

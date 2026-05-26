@@ -2544,6 +2544,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "prometheus",
  "proptest",
@@ -2598,6 +2599,7 @@ dependencies = [
  "chrono",
  "prometheus",
  "rdkafka",
+ "redis",
  "reqwest",
  "serde",
  "serde_json",

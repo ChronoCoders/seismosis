@@ -55,6 +55,9 @@ axum = { workspace = true }
 # ── Time ─────────────────────────────────────────────────────
 chrono = { workspace = true }
 
+# ── Redis (optional cache invalidation) ─────────────────────
+redis = { workspace = true, features = ["connection-manager"] }
+
 # ── Retry with exponential backoff ───────────────────────────
 tokio-retry = { workspace = true }
 

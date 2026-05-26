@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use redis::AsyncCommands as _;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing::debug;
 
@@ -20,6 +21,65 @@ pub async fn create_pool(config: &Config) -> Result<PgPool, StorageError> {
         .map_err(StorageError::Database)
 }
 
+/// A matching event found by the cross-source proximity query.
+pub struct CrossSourceMatch {
+    pub source_id: String,
+    pub quality_indicator: String,
+}
+
+/// Query for an existing event from a *different* source network that falls
+/// within the cross-source deduplication window:
+/// - event_time within 30 seconds, AND
+/// - coordinates within 0.5° on both axes.
+///
+/// Uses a runtime `sqlx::query_as` (not the `query!` macro) to avoid requiring
+/// a live database during compilation.
+pub async fn find_cross_source_match(
+    pool: &PgPool,
+    event: &EarthquakeEvent,
+) -> Result<Option<CrossSourceMatch>, ProcessError> {
+    const SQL: &str = r#"
+        SELECT source_id, quality_indicator
+        FROM seismology.seismic_events
+        WHERE source_network != $1
+          AND ABS(EXTRACT(EPOCH FROM (event_time - $2))) <= 30
+          AND ABS(ST_X(location)::float8 - $3) <= 0.5
+          AND ABS(ST_Y(location)::float8 - $4) <= 0.5
+        LIMIT 1
+    "#;
+
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        source_id: String,
+        quality_indicator: String,
+    }
+
+    let row = sqlx::query_as::<_, Row>(SQL)
+        .bind(&event.source_network)
+        .bind(event.event_time)
+        .bind(event.longitude)
+        .bind(event.latitude)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ProcessError::DbUpsert(e.to_string()))?;
+
+    Ok(row.map(|r| CrossSourceMatch {
+        source_id: r.source_id,
+        quality_indicator: r.quality_indicator,
+    }))
+}
+
+/// Map a quality indicator character to a numeric rank for comparison.
+/// Higher rank = better quality. A(4) > B(3) > C(2) > D(1).
+pub fn quality_rank(q: &str) -> u8 {
+    match q {
+        "A" => 4,
+        "B" => 3,
+        "C" => 2,
+        _ => 1,
+    }
+}
+
 /// Upsert a validated event into `seismology.seismic_events`.
 ///
 /// Uses `ON CONFLICT (source_id) DO UPDATE SET ... WHERE EXCLUDED.event_time >
@@ -31,8 +91,9 @@ pub async fn create_pool(config: &Config) -> Result<PgPool, StorageError> {
 ///   skips the update. PostgreSQL returns 0 rows affected; no error is raised.
 ///   This handles late-arriving duplicates from overlapping source poll windows.
 ///
-/// The `updated_at` column is maintained by the `trg_seismic_events_updated_at`
-/// trigger on UPDATE.
+/// After a successful upsert, fires a best-effort `DEL api:event:{source_id}`
+/// against Redis to evict any stale cached response. The DEL is spawned as a
+/// background task; a failure is logged at WARN and does not affect the result.
 ///
 /// # Type coercions
 /// - `magnitude`, `depth_km`: Avro `double` → `$n::float8` cast tells
@@ -44,15 +105,11 @@ pub async fn create_pool(config: &Config) -> Result<PgPool, StorageError> {
 ///   `ST_SetSRID(ST_MakePoint($lon, $lat), 4326)`.
 /// - `raw_payload`: `serde_json::Value` → `JSONB` via sqlx's `json` feature.
 /// - `event_time`, `processed_at`: `DateTime<Utc>` → `TIMESTAMPTZ`.
-///
-/// # SQLX offline mode
-/// Compile-time query checking requires either `DATABASE_URL` pointing at a
-/// running seismosis database, or `SQLX_OFFLINE=true` with a pre-built
-/// `.sqlx/` directory from `cargo sqlx prepare`. See `Cargo.toml` for details.
 pub async fn upsert_event(
     pool: &PgPool,
     event: &EarthquakeEvent,
     metrics: &Metrics,
+    redis: Option<redis::aio::ConnectionManager>,
 ) -> Result<(), ProcessError> {
     let db_start = Instant::now();
 
@@ -135,6 +192,18 @@ pub async fn upsert_event(
         elapsed_ms = (elapsed * 1000.0) as u64,
         "Event upserted"
     );
+
+    // Evict the API cache entry so the next GET /v1/events/{id} fetches fresh
+    // data. Fire-and-forget: a Redis failure should never fail a successful DB
+    // write.
+    if let Some(mut conn) = redis {
+        let cache_key = format!("api:event:{}", event.source_id);
+        tokio::spawn(async move {
+            if let Err(e) = conn.del::<_, ()>(&cache_key).await {
+                tracing::warn!(key = %cache_key, error = %e, "Redis DEL failed");
+            }
+        });
+    }
 
     Ok(())
 }

@@ -105,12 +105,12 @@ function EventTable({
   events,
   page,
   onPage,
-  total,
+  hasMore,
 }: {
   events: EarthquakeEvent[];
   page: number;
   onPage: (p: number) => void;
-  total: number;
+  hasMore: boolean;
 }) {
   const totalPages = Math.ceil(events.length / TABLE_PAGE_SIZE);
   const slice = events.slice((page - 1) * TABLE_PAGE_SIZE, page * TABLE_PAGE_SIZE);
@@ -189,9 +189,9 @@ function EventTable({
       <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-surface sticky bottom-0">
         <span className="text-xs text-text-muted">
           {events.length.toLocaleString('tr-TR')} sonuç gösteriliyor
-          {total > events.length && (
+          {hasMore && (
             <span className="ml-1 text-mag-yellow">
-              (toplam {total.toLocaleString('tr-TR')})
+              (daha fazla var)
             </span>
           )}
         </span>
@@ -227,7 +227,7 @@ export default function HistoryTab() {
   const [period, setPeriod]           = useState<Period>('7d');
   const [filterTurkey, setFilterTurkey] = useState(false);
   const [events, setEvents]           = useState<EarthquakeEvent[]>([]);
-  const [total, setTotal]             = useState(0);
+  const [hasMore, setHasMore]         = useState(false);
   const [loading, setLoading]         = useState(true);
   const [page, setPage]               = useState(1);
 
@@ -241,7 +241,6 @@ export default function HistoryTab() {
 
       const params: Record<string, string | number> = {
         page_size: 1000,
-        page: 1,
         start_time: startTime.toISOString(),
         end_time:   endTime.toISOString(),
       };
@@ -253,9 +252,8 @@ export default function HistoryTab() {
       }
 
       const resp = await fetchEvents(params);
-      // API returns newest-first; reverse for trend chart (oldest → newest)
       setEvents(resp.events);
-      setTotal(resp.total);
+      setHasMore(resp.has_more);
     } catch (err) {
       console.error('HistoryTab load failed:', err);
     } finally {
@@ -356,7 +354,7 @@ export default function HistoryTab() {
               events={events}
               page={page}
               onPage={setPage}
-              total={total}
+              hasMore={hasMore}
             />
           )}
         </div>

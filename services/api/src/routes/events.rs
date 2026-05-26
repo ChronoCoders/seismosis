@@ -130,12 +130,15 @@ pub(crate) fn validate_events_query(query: &EventsQuery) -> Result<(), RequestEr
     Ok(())
 }
 
-/// List earthquake events with optional filtering and pagination.
+/// List earthquake events with optional filtering and cursor-based pagination.
 ///
 /// All filter parameters are optional. When a bounding-box filter is used,
 /// all four corners (`min_lat`, `max_lat`, `min_lon`, `max_lon`) must be
 /// supplied together; a partial bounding box returns `400`. Anti-meridian
 /// bounding boxes are not supported in Phase 1.
+///
+/// Pagination uses keyset cursors: pass the `next_cursor` value from a
+/// previous response as the `cursor` query parameter to fetch the next page.
 #[utoipa::path(
     get,
     path = "/v1/events",
@@ -152,23 +155,32 @@ pub async fn list_events(
 ) -> Result<Json<EventListResponse>, RequestError> {
     validate_events_query(&query)?;
 
-    // Compute pagination once; the same values go into the DB call and the
-    // response body so they can never drift.
-    let page = query.page.unwrap_or(EventsQuery::DEFAULT_PAGE).max(1);
     let page_size = query
         .page_size
         .unwrap_or(EventsQuery::DEFAULT_PAGE_SIZE)
         .clamp(1, EventsQuery::MAX_PAGE_SIZE);
 
-    debug!(page, page_size, "Listing events");
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(|s| {
+            crate::db::decode_cursor(s).ok_or(RequestError::BadParam {
+                param: "cursor",
+                detail: "invalid or expired cursor token".to_owned(),
+            })
+        })
+        .transpose()?;
 
-    let (events, total) = crate::db::list_events(&state.pool, &query, page, page_size).await?;
+    debug!(page_size, has_cursor = cursor.is_some(), "Listing events");
+
+    let (events, has_more, next_cursor) =
+        crate::db::list_events(&state.pool, &query, cursor.as_ref(), page_size).await?;
 
     Ok(Json(EventListResponse {
         events,
-        page,
         page_size,
-        total,
+        has_more,
+        next_cursor,
     }))
 }
 
@@ -236,7 +248,7 @@ mod tests {
 
     fn q() -> EventsQuery {
         EventsQuery {
-            page: None,
+            cursor: None,
             page_size: None,
             start_time: None,
             end_time: None,

@@ -33,6 +33,10 @@ pub struct Metrics {
     /// Reported as a counter-based proxy — incremented each poll cycle.
     pub dedup_redis_fallback_total: CounterVec,
 
+    /// Number of times adaptive fast-polling was triggered or extended by a
+    /// M ≥ threshold event. Label `source` is the originating source network.
+    pub adaptive_poll_activations_total: CounterVec,
+
     /// Backing registry — used by the metrics HTTP handler.
     pub registry: Registry,
 }
@@ -117,6 +121,14 @@ impl Metrics {
             &["source"],
         )?);
 
+        let adaptive_poll_activations_total = register!(CounterVec::new(
+            Opts::new(
+                "seismosis_ingestion_adaptive_poll_activations_total",
+                "Number of times adaptive fast-polling was triggered by a significant event",
+            ),
+            &["source"],
+        )?);
+
         Ok(Arc::new(Self {
             events_received_total,
             events_published_total,
@@ -126,6 +138,7 @@ impl Metrics {
             publish_duration_seconds,
             schema_registry_requests_total,
             dedup_redis_fallback_total,
+            adaptive_poll_activations_total,
             registry,
         }))
     }

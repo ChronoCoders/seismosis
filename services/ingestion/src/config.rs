@@ -73,6 +73,17 @@ pub struct Config {
 
     /// Injected into every produced Avro record for traceability.
     pub pipeline_version: String,
+
+    /// Poll interval used after a M ≥ `adaptive_magnitude_threshold` event is
+    /// published. Defaults to 30 s to capture aftershocks faster.
+    pub adaptive_poll_interval: Duration,
+
+    /// How long the fast-poll window remains active after the last significant
+    /// event. Defaults to 600 s (10 minutes).
+    pub adaptive_poll_window: Duration,
+
+    /// Magnitude threshold that triggers adaptive polling.
+    pub adaptive_magnitude_threshold: f64,
 }
 
 impl Config {
@@ -108,6 +119,12 @@ impl Config {
             kafka_producer_acks: var_str("KAFKA_PRODUCER_ACKS", "all"),
             kafka_message_timeout_ms: var_u64("KAFKA_MESSAGE_TIMEOUT_MS", 30_000)? as u32,
             pipeline_version: var_str("PIPELINE_VERSION", env!("CARGO_PKG_VERSION")),
+            adaptive_poll_interval: Duration::from_secs(var_u64(
+                "ADAPTIVE_POLL_INTERVAL_SECS",
+                30,
+            )?),
+            adaptive_poll_window: Duration::from_secs(var_u64("ADAPTIVE_POLL_WINDOW_SECS", 600)?),
+            adaptive_magnitude_threshold: var_f64("ADAPTIVE_MAGNITUDE_THRESHOLD", 5.0)?,
         })
     }
 }

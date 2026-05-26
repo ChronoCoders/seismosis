@@ -18,9 +18,9 @@ export interface EarthquakeEvent {
 
 export interface EventListResponse {
   events: EarthquakeEvent[];
-  page: number;
   page_size: number;
-  total: number;
+  has_more: boolean;
+  next_cursor?: string;
 }
 
 export interface BandStats {

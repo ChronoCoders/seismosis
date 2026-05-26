@@ -63,6 +63,9 @@ mod tests {
             http_timeout: Duration::from_secs(10),
             http_max_retries: 1,
             pipeline_version: "integration-test".to_owned(),
+            adaptive_poll_interval: Duration::from_secs(30),
+            adaptive_poll_window: Duration::from_secs(600),
+            adaptive_magnitude_threshold: 5.0,
         }
     }
 
@@ -90,6 +93,9 @@ mod tests {
             http_timeout: Duration::from_secs(10),
             http_max_retries: 1,
             pipeline_version: "integration-test".to_owned(),
+            adaptive_poll_interval: Duration::from_secs(30),
+            adaptive_poll_window: Duration::from_secs(600),
+            adaptive_magnitude_threshold: 5.0,
         }
     }
 

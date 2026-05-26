@@ -32,6 +32,10 @@ pub struct Config {
 
     /// TCP port for the Prometheus `/metrics` endpoint.
     pub metrics_port: u16,
+
+    /// Redis URL for cache invalidation. Optional — when absent, invalidation
+    /// is skipped and the API cache will expire on its own TTL.
+    pub redis_url: Option<String>,
 }
 
 impl Config {
@@ -59,6 +63,7 @@ impl Config {
                     detail: "value exceeds u16::MAX (65535)".to_owned(),
                 }
             })?,
+            redis_url: env::var("REDIS_URL").ok(),
         })
     }
 }

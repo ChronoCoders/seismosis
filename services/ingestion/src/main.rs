@@ -27,7 +27,7 @@ mod sources;
 mod integration_tests;
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use apache_avro::Schema;
 use axum::{body::Body, http::Response, routing::get, Router};
@@ -208,6 +208,11 @@ async fn run_poll_loop(
     } = ctx;
     info!("Poll loop started");
 
+    // Tracks the deadline until which adaptive fast-polling is active.
+    // Set when a M ≥ adaptive_magnitude_threshold event is published; cleared
+    // when the deadline passes.
+    let mut fast_poll_until: Option<Instant> = None;
+
     loop {
         let since = Utc::now() - config.lookback_window;
 
@@ -285,6 +290,28 @@ async fn run_poll_loop(
                                     .events_published_total
                                     .with_label_values(&[source_name])
                                     .inc();
+
+                                // Significant event: activate adaptive fast-polling
+                                // window so aftershocks are captured quickly.
+                                if event.magnitude >= config.adaptive_magnitude_threshold {
+                                    let new_deadline = Instant::now() + config.adaptive_poll_window;
+                                    let is_new_or_extended =
+                                        fast_poll_until.map_or(true, |t| new_deadline > t);
+                                    if is_new_or_extended {
+                                        fast_poll_until = Some(new_deadline);
+                                        metrics
+                                            .adaptive_poll_activations_total
+                                            .with_label_values(&[source_name])
+                                            .inc();
+                                        info!(
+                                            source = source_name,
+                                            magnitude = event.magnitude,
+                                            threshold = config.adaptive_magnitude_threshold,
+                                            window_secs = config.adaptive_poll_window.as_secs(),
+                                            "Adaptive fast-polling activated"
+                                        );
+                                    }
+                                }
                             }
                             Err(e) => {
                                 error!(
@@ -339,9 +366,17 @@ async fn run_poll_loop(
             }
         }
 
-        // Wait for the next poll interval or a shutdown signal.
+        // Use a shorter poll interval while the adaptive window is active.
+        let sleep_duration: Duration = match fast_poll_until {
+            Some(deadline) if deadline > Instant::now() => config.adaptive_poll_interval,
+            _ => {
+                fast_poll_until = None;
+                config.poll_interval
+            }
+        };
+
         tokio::select! {
-            _ = tokio::time::sleep(config.poll_interval) => {}
+            _ = tokio::time::sleep(sleep_duration) => {}
             _ = shutdown.changed() => {
                 info!("Poll loop received shutdown signal — exiting after current batch");
                 break;

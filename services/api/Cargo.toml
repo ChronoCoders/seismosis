@@ -32,6 +32,9 @@ sqlx = { workspace = true, features = ["uuid", "json"] }
 # connection-manager: auto-reconnecting async handle used in cache.rs / main.rs.
 redis = { workspace = true, features = ["connection-manager"] }
 
+# ── Cursor encoding (keyset pagination) ──────────────────────
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+
 # ── OpenAPI / Swagger ────────────────────────────────────────
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }

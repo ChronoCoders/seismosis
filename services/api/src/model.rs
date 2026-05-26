@@ -41,13 +41,20 @@ pub struct EventResponse {
 }
 
 /// Paginated list response for `GET /v1/events`.
+///
+/// Uses keyset (cursor) pagination rather than OFFSET so performance is stable
+/// regardless of result depth. Pass `next_cursor` as the `cursor` query
+/// parameter on the next request to fetch the following page. `has_more` is
+/// `false` on the last page.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EventListResponse {
     pub events: Vec<EventResponse>,
-    pub page: u32,
     pub page_size: u32,
-    /// Total number of rows matching the applied filters (before pagination).
-    pub total: i64,
+    /// Whether more results exist beyond this page.
+    pub has_more: bool,
+    /// Opaque cursor for the next page; absent when `has_more` is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// Response body for `GET /v1/stats`.
@@ -78,8 +85,9 @@ pub struct BandStats {
 /// Query parameters for `GET /v1/events`.
 #[derive(Debug, Deserialize, ToSchema, IntoParams)]
 pub struct EventsQuery {
-    /// Page number, 1-based. Default: 1.
-    pub page: Option<u32>,
+    /// Opaque pagination cursor returned by a previous response. Omit for the
+    /// first page. Cursors encode the last `event_time` and `source_id` seen.
+    pub cursor: Option<String>,
     /// Results per page, 1–1000. Default: 50.
     pub page_size: Option<u32>,
     /// Return events at or after this time (RFC 3339).
@@ -101,7 +109,6 @@ pub struct EventsQuery {
 }
 
 impl EventsQuery {
-    pub const DEFAULT_PAGE: u32 = 1;
     pub const DEFAULT_PAGE_SIZE: u32 = 50;
     pub const MAX_PAGE_SIZE: u32 = 1000;
 }
