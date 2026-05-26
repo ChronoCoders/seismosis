@@ -8,9 +8,6 @@
 target/
 **/*.rs.bk
 
-# sqlx offline query cache — regenerate with: cargo sqlx prepare --workspace
-.sqlx/
-
 # Claude Code configuration and project instructions
 CLAUDE.md
 .claude/

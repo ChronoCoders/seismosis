@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO seismology.seismic_events (\n            source_id,\n            source_network,\n            event_time,\n            magnitude,\n            magnitude_type,\n            location,\n            depth_km,\n            region_name,\n            quality_indicator,\n            raw_payload,\n            processed_at,\n            pipeline_version\n        )\n        VALUES (\n            $1,\n            $2,\n            $3,\n            $4::float8,\n            $5,\n            ST_SetSRID(ST_MakePoint($6::float8, $7::float8), 4326),\n            $8::float8,\n            $9,\n            $10,\n            $11,\n            $12,\n            $13\n        )\n        ON CONFLICT (source_id) DO UPDATE SET\n            source_network    = EXCLUDED.source_network,\n            event_time        = EXCLUDED.event_time,\n            magnitude         = EXCLUDED.magnitude,\n            magnitude_type    = EXCLUDED.magnitude_type,\n            location          = EXCLUDED.location,\n            depth_km          = EXCLUDED.depth_km,\n            region_name       = EXCLUDED.region_name,\n            quality_indicator = EXCLUDED.quality_indicator,\n            raw_payload       = EXCLUDED.raw_payload,\n            processed_at      = EXCLUDED.processed_at,\n            pipeline_version  = EXCLUDED.pipeline_version\n        WHERE EXCLUDED.event_time > seismic_events.event_time\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Timestamptz",
+        "Float8",
+        "Varchar",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Varchar",
+        "Bpchar",
+        "Jsonb",
+        "Timestamptz",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d35b8903ffedcaee7fea8e94cd8f1c0fe3076c66c12bc02f5afbe947a143de1"
+}

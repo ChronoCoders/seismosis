@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id                                      AS \"id!: Uuid\",\n            source_id                               AS \"source_id!: String\",\n            source_network                          AS \"source_network!: String\",\n            event_time                              AS \"event_time!: DateTime<Utc>\",\n            ST_Y(location)::float8                  AS \"latitude!: f64\",\n            ST_X(location)::float8                  AS \"longitude!: f64\",\n            depth_km::float8                        AS \"depth_km?: f64\",\n            magnitude::float8                       AS \"magnitude!: f64\",\n            magnitude_type                          AS \"magnitude_type!: String\",\n            region_name                             AS \"region_name?: String\",\n            quality_indicator                       AS \"quality_indicator!: String\",\n            processed_at                            AS \"processed_at!: DateTime<Utc>\",\n            pipeline_version                        AS \"pipeline_version!: String\",\n            1::bigint                               AS \"total!: i64\"\n        FROM seismology.seismic_events\n        WHERE source_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "source_id!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "source_network!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_time!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "latitude!: f64",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 5,
+        "name": "longitude!: f64",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "depth_km?: f64",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "magnitude!: f64",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 8,
+        "name": "magnitude_type!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "region_name?: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "quality_indicator!: String",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "processed_at!: DateTime<Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "pipeline_version!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "total!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null,
+      null,
+      null,
+      null,
+      false,
+      true,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "4d3678c712b983db551b412a0ca2642df3a8898c1c8aa2defff9d2e8e5b16bcb"
+}

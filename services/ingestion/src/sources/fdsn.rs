@@ -395,6 +395,7 @@ fn parse_feature(
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn make_feature(
         code: Option<&str>,
         time: Option<i64>,
