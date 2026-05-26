@@ -1,7 +1,7 @@
 """Prometheus metrics for the analysis service."""
 from __future__ import annotations
 
-from prometheus_client import CollectorRegistry, Counter, Histogram
+from prometheus_client import CollectorRegistry, Counter, Histogram, Summary
 
 
 class Metrics:
@@ -59,5 +59,20 @@ class Metrics:
         self.cache_write_errors_total = Counter(
             "seismosis_analysis_cache_write_errors_total",
             "Redis write failures (non-fatal)",
+            registry=registry,
+        )
+        self.shakemap_fetched_total = Counter(
+            "seismosis_analysis_shakemap_fetched_total",
+            "Total ShakeMap GeoJSON payloads successfully fetched and stored",
+            registry=registry,
+        )
+        self.shakemap_fetch_errors_total = Counter(
+            "seismosis_analysis_shakemap_fetch_errors_total",
+            "ShakeMap fetch or store failures (non-fatal; event still produced to topic)",
+            registry=registry,
+        )
+        self.shakemap_fetch_duration_seconds = Summary(
+            "seismosis_analysis_shakemap_fetch_duration_seconds",
+            "Time spent fetching and storing ShakeMap data (including retry delays)",
             registry=registry,
         )

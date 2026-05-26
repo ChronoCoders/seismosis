@@ -19,8 +19,9 @@ Processing pipeline per message
 5.  Produce enriched event      → earthquakes.enriched
 6.  Produce alert if M ≥ threshold → earthquakes.alerts
 7.  Upsert to PostgreSQL        (non-fatal)
-8.  Write Redis cache           (non-fatal)
-9.  Commit Kafka offset
+8.  ShakeMap enrichment         (non-fatal; M≥3.5 USGS events only — shakemap.enrich_with_shakemap)
+9.  Write Redis cache           (non-fatal)
+10. Commit Kafka offset
 
 Failure modes
 -------------
@@ -58,6 +59,7 @@ from .producer import KafkaProducer
 from .classifier import classify_event
 from .risk import alert_level, estimate_epicentral_mmi, estimate_felt_radius_km
 from .schema import ALERT_SCHEMA, ALERT_SUBJECT, ENRICHED_SCHEMA, ENRICHED_SUBJECT
+from .shakemap import enrich_with_shakemap
 
 
 
@@ -331,6 +333,32 @@ def process_message(
     except Exception as exc:
         logger.error("db_write_error", source_id=source_id, error=str(exc))
         metrics.db_write_errors_total.inc()
+
+    # Step 8 — ShakeMap enrichment (non-fatal, M≥3.5 USGS events only).
+    # Runs after the upsert so the row is guaranteed to exist in the DB.
+    # A separate connection is checked out because enrich_with_shakemap may
+    # sleep for up to 270 s across retries and we must not hold a pooled
+    # connection idle for that duration under normal (non-retry) operation.
+    t_sm = time.monotonic()
+    shakemap_conn = db.get_conn()
+    try:
+        fetched = enrich_with_shakemap(
+            shakemap_conn,
+            source_id=enriched.source_id,
+            magnitude=ml_magnitude,
+            source_network=enriched.source_network,
+        )
+        if fetched:
+            metrics.shakemap_fetched_total.inc()
+        elif ml_magnitude >= 3.5 and enriched.source_network.upper() == "USGS":
+            # Eligible event but ShakeMap unavailable after all retries.
+            metrics.shakemap_fetch_errors_total.inc()
+    except Exception as exc:
+        logger.error("shakemap_unexpected_error", source_id=source_id, error=str(exc))
+        metrics.shakemap_fetch_errors_total.inc()
+    finally:
+        db.put_conn(shakemap_conn)
+        metrics.shakemap_fetch_duration_seconds.observe(time.monotonic() - t_sm)
 
     if not cache.set_event(enriched, ttl_secs=config.event_cache_ttl_secs):
         metrics.cache_write_errors_total.inc()
