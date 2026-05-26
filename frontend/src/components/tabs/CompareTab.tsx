@@ -98,15 +98,15 @@ function StatCard({
         {label}
       </p>
       <div className="flex items-end gap-3">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <p className="text-[9px] text-text-muted mb-1">Dönem A</p>
-          <p className={`text-2xl font-bold font-mono leading-none ${colorA}`}>
+          <p className={`text-xl font-bold font-mono leading-none truncate ${colorA}`}>
             {fmt(valA)}
           </p>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <p className="text-[9px] text-text-muted mb-1">Dönem B</p>
-          <p className={`text-2xl font-bold font-mono leading-none ${colorB}`}>
+          <p className={`text-xl font-bold font-mono leading-none truncate ${colorB}`}>
             {fmt(valB)}
           </p>
         </div>
@@ -356,7 +356,7 @@ export default function CompareTab() {
               label="Saatlik Oran"
               valA={statsA.rate}
               valB={statsB.rate}
-              format={(v) => `${v.toFixed(2)}/sa`}
+              format={(v) => `${v.toFixed(1)}/sa`}
               higherIsWorse={true}
             />
           </div>
