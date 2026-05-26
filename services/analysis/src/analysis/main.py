@@ -13,7 +13,7 @@ and caches enriched events in Redis.
 Processing pipeline per message
 ---------------------------------
 1.  Avro decode (Confluent wire format via Schema Registry)
-2.  ML magnitude refinement     (magnitude.refine_to_ml)
+2.  Magnitude calibration       (Grünthal 2009; magnitude.refine_to_ml)
 3.  ETAS aftershock detection   (aftershock.find_mainshock / classify_aftershock)
 4.  Risk estimation             (risk.estimate_felt_radius_km / estimate_epicentral_mmi)
 5.  Produce enriched event      → earthquakes.enriched

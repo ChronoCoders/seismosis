@@ -304,7 +304,7 @@ export default function MapInner({ events }: MapInnerProps) {
               )}
             </div>
 
-            {/* ML magnitude note */}
+            {/* Calibrated magnitude note (Grünthal 2009) */}
             {popup.ml_magnitude !== null &&
               popup.ml_magnitude !== undefined &&
               Math.abs(popup.ml_magnitude - popup.magnitude) >= 0.1 && (

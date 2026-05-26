@@ -46,7 +46,7 @@ class Metrics:
         )
         self.magnitude_correction = Histogram(
             "seismosis_analysis_magnitude_correction",
-            "Signed difference between refined ML and reported magnitude (ml_magnitude − magnitude)",
+            "Signed difference between calibrated and reported magnitude (ml_magnitude − magnitude)",
             ["magnitude_type"],
             buckets=[-2.0, -1.5, -1.0, -0.5, -0.25, -0.1, 0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0],
             registry=registry,

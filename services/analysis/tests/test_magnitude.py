@@ -1,4 +1,4 @@
-"""Unit tests for ML magnitude refinement (analysis.magnitude)."""
+"""Unit tests for magnitude calibration — Grünthal 2009 (analysis.magnitude)."""
 from __future__ import annotations
 
 import pytest

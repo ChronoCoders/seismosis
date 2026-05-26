@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "seismosis-analysis"
 version = "0.1.0"
 requires-python = ">=3.11"
-description = "Seismosis analysis service — ML magnitude refinement, ETAS aftershock detection, enrichment"
+description = "Seismosis analysis service — magnitude calibration (Grünthal 2009), aftershock detection, enrichment"
 dependencies = [
     "confluent-kafka>=2.3.0",
     "fastavro>=1.9.0",

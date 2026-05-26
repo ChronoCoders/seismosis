@@ -17,8 +17,8 @@ ENRICHED_SCHEMA: dict[str, Any] = {
     "name": "EnrichedEarthquakeEvent",
     "namespace": "com.seismosis",
     "doc": (
-        "Seismic event enriched with ML magnitude refinement, "
-        "ETAS aftershock classification, and risk estimates."
+        "Seismic event enriched with magnitude calibration (Grünthal 2009), "
+        "aftershock classification, and risk estimates."
     ),
     "fields": [
         {"name": "source_id", "type": "string"},

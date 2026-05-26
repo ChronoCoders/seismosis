@@ -79,7 +79,7 @@ export function SettingsPage({ minMagnitude, onMinMagnitude, filterTurkey, onFil
                 ['Platform', 'Seismosis v2'],
                 ['WebSocket', process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:9093'],
                 ['Veri Kaynakları', 'USGS · EMSC · AFAD'],
-                ['Analiz', 'ML Büyüklük Kalibrasyonu · Artçı Tespiti'],
+                ['Analiz', 'Büyüklük Kalibrasyonu (Grünthal 2009) · Artçı Tespiti'],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-start gap-3">
                   <dt className="text-[#575c6e] shrink-0 w-28">{k}</dt>
