@@ -6,7 +6,7 @@ Uses asyncpg for async bulk upserts into seismology.historical_events.
 Checkpoint resume
 -----------------
 On startup, reads the last ingested event_time from
-seismology.ingest_checkpoints WHERE job_name = 'usgs_turkey'.
+seismology.ingest_checkpoints for a given job_name.
 If the row exists, ingestion resumes from that timestamp; otherwise it starts
 from the configured start date (2016-01-01).
 
@@ -23,13 +23,27 @@ Table contract
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Protocol
 
 import asyncpg
 import structlog
 
-from .comcat import ComCatEvent
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
+
+class HistoricalEventRow(Protocol):
+    """Structural protocol satisfied by ComCatEvent, AfadEvent, and any future source."""
+
+    source_id: str
+    source_network: str
+    event_time: datetime
+    latitude: float
+    longitude: float
+    depth_km: float
+    magnitude: float
+    magnitude_type: str
+    region_name: str
+
 
 _UPSERT_SQL = """
 INSERT INTO seismology.historical_events (
@@ -57,12 +71,12 @@ ON CONFLICT (source_id) DO UPDATE SET
 _CHECKPOINT_SELECT = """
 SELECT last_event_time
 FROM seismology.ingest_checkpoints
-WHERE job_name = 'usgs_turkey'
+WHERE job_name = $1
 """
 
 _CHECKPOINT_UPSERT = """
 INSERT INTO seismology.ingest_checkpoints (job_name, last_event_time, events_ingested)
-VALUES ('usgs_turkey', $1, $2)
+VALUES ($1, $2, $3)
 ON CONFLICT (job_name) DO UPDATE SET
     last_event_time  = EXCLUDED.last_event_time,
     events_ingested  = EXCLUDED.events_ingested,
@@ -88,13 +102,13 @@ class Database:
         """Close all connections in the pool."""
         await self._pool.close()
 
-    async def read_checkpoint(self) -> datetime | None:
+    async def read_checkpoint(self, job_name: str) -> datetime | None:
         """
-        Return the last successfully ingested event_time for the usgs_turkey job,
+        Return the last successfully ingested event_time for *job_name*,
         or None if no checkpoint exists yet.
         """
         async with self._pool.acquire() as conn:
-            row: asyncpg.Record | None = await conn.fetchrow(_CHECKPOINT_SELECT)  # type: ignore[type-arg]
+            row: asyncpg.Record | None = await conn.fetchrow(_CHECKPOINT_SELECT, job_name)  # type: ignore[type-arg]
         if row is None:
             return None
         ts: datetime = row["last_event_time"]
@@ -105,12 +119,13 @@ class Database:
 
     async def upsert_batch(
         self,
-        events: list[ComCatEvent],
+        events: list[HistoricalEventRow],
         total_ingested: int,
+        job_name: str,
     ) -> int:
         """
         Upsert *events* into seismology.historical_events in batches of 1 000
-        rows and update the checkpoint with the latest event_time.
+        rows and update the *job_name* checkpoint with the latest event_time.
 
         Returns the number of rows submitted (not the number of rows actually
         inserted — ON CONFLICT rows count towards this total too).
@@ -154,10 +169,11 @@ class Database:
                     chunk = rows[chunk_start : chunk_start + _BATCH_SIZE]
                     await conn.executemany(_UPSERT_SQL, chunk)
 
-                await conn.execute(_CHECKPOINT_UPSERT, latest_event_time, new_total)
+                await conn.execute(_CHECKPOINT_UPSERT, job_name, latest_event_time, new_total)
 
         log.debug(
             "batch_upserted",
+            job_name=job_name,
             count=len(events),
             latest_event_time=latest_event_time.isoformat(),
             total_ingested=new_total,

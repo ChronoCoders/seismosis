@@ -3,6 +3,8 @@ Prometheus metrics for the historical ingestion service.
 
 Exposed on :9097/metrics via the HTTP server started in main.py.
 Metric naming convention: seismosis_historical_{metric}_{unit}
+
+All metrics carry a `source` label so USGS and AFAD can be tracked separately.
 """
 from __future__ import annotations
 
@@ -16,16 +18,19 @@ class Metrics:
         self.events_ingested_total: Counter = Counter(
             "seismosis_historical_events_ingested_total",
             "Total number of historical seismic events successfully upserted into PostgreSQL",
+            labelnames=["source"],
             registry=registry,
         )
         self.fetch_errors_total: Counter = Counter(
             "seismosis_historical_fetch_errors_total",
-            "Total number of HTTP fetch errors encountered while downloading from USGS ComCat",
+            "Total number of HTTP fetch errors encountered while downloading catalog data",
+            labelnames=["source"],
             registry=registry,
         )
         self.ingest_duration_seconds: Histogram = Histogram(
             "seismosis_historical_ingest_duration_seconds",
             "Duration of each batch upsert operation in seconds",
+            labelnames=["source"],
             buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
             registry=registry,
         )
