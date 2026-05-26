@@ -4,16 +4,18 @@ AFAD (Disaster and Emergency Management Authority) historical earthquake catalog
 Fetches Turkey region seismicity from:
     https://deprem.afad.gov.tr/apiv2/event/filter
 
-The endpoint accepts a POST request with a JSON body. Parameters:
+The endpoint accepts a GET request with query parameters:
     start   — window start, "YYYY-MM-DD HH:MM:SS" (UTC)
     end     — window end,   "YYYY-MM-DD HH:MM:SS" (UTC)
-    minmag  — minimum magnitude (string)
+    minmag  — minimum magnitude
     maxlat  — bounding box north edge
     minlat  — bounding box south edge
     maxlon  — bounding box east edge
     minlon  — bounding box west edge
 
-Response: JSON array of event objects.
+Response: JSON array of event objects with fields:
+    eventID, date (ISO UTC), latitude, longitude, depth,
+    type (magnitude type), magnitude, location, province
 
 Pagination strategy
 -------------------
@@ -26,7 +28,7 @@ Rate limit: 2 requests/second (0.5 s sleep between requests).
 
 Timezone
 --------
-The AFAD API returns event times in UTC.
+The AFAD API returns event times in UTC (ISO format without timezone suffix).
 """
 from __future__ import annotations
 
@@ -44,8 +46,7 @@ log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _AFAD_URL = "https://deprem.afad.gov.tr/apiv2/event/filter"
 
-# Turkey region bounding box (slightly tighter than the USGS bbox —
-# covers mainland Turkey and immediately adjacent seismogenic zones)
+# Turkey region bounding box (covers mainland Turkey and adjacent seismogenic zones)
 _MIN_LAT = 35.0
 _MAX_LAT = 43.0
 _MIN_LON = 25.0
@@ -60,11 +61,15 @@ _MAX_RETRIES = 3
 _BACKOFF_BASE_SECS = 2.0
 
 _DATE_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S",
     "%Y.%m.%d %H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S",
-    "%Y-%m-%dT%H:%M:%SZ",
 )
+
+_HEADERS = {
+    "User-Agent": "Seismosis/1.0 (earthquake research; contact altug@bytus.io)",
+    "Accept": "application/json",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -108,11 +113,11 @@ def _parse_afad_event(item: dict[str, Any]) -> AfadEvent | None:
     """
     Parse a single AFAD event dict into an AfadEvent.
 
-    Returns None and logs a warning if any required field is missing or
+    Returns None and logs a debug message if any required field is missing or
     cannot be coerced — the caller skips None entries.
     """
     try:
-        event_id = str(item.get("eventID") or item.get("event_id") or "").strip()
+        event_id = str(item.get("eventID") or "").strip()
         if not event_id:
             log.debug("afad_skip_missing_id", item_keys=list(item.keys()))
             return None
@@ -124,8 +129,8 @@ def _parse_afad_event(item: dict[str, Any]) -> AfadEvent | None:
 
         event_time = _parse_afad_date(date_raw)
 
-        lat_raw = item.get("latitude") or item.get("lat")
-        lon_raw = item.get("longitude") or item.get("lon")
+        lat_raw = item.get("latitude")
+        lon_raw = item.get("longitude")
         if lat_raw is None or lon_raw is None:
             log.debug("afad_skip_missing_coords", event_id=event_id)
             return None
@@ -134,12 +139,14 @@ def _parse_afad_event(item: dict[str, Any]) -> AfadEvent | None:
         longitude = float(str(lon_raw))
         depth_km = float(str(item.get("depth") or 0.0))
         magnitude = float(str(item.get("magnitude") or 0.0))
-        mag_type = str(
-            item.get("magnitudeType") or item.get("magnitude_type") or "ML"
-        ).strip() or "ML"
 
-        # Use province as the region description; fall back to closestCity
-        province = str(item.get("province") or item.get("closestCity") or "").strip()
+        # AFAD uses "type" for the magnitude scale (ML, Mw, mb, etc.)
+        mag_type = str(item.get("type") or "ML").strip() or "ML"
+
+        # "location" is the most readable description; fall back to province
+        region_name = str(
+            item.get("location") or item.get("province") or ""
+        ).strip()
 
         return AfadEvent(
             source_id=f"afad:{event_id}",
@@ -150,23 +157,26 @@ def _parse_afad_event(item: dict[str, Any]) -> AfadEvent | None:
             depth_km=depth_km,
             magnitude=magnitude,
             magnitude_type=mag_type,
-            region_name=province,
+            region_name=region_name,
         )
     except (ValueError, TypeError, KeyError) as exc:
         log.warning(
             "afad_parse_error",
             error=str(exc),
-            event_id=str(item.get("eventID") or item.get("event_id") or "?"),
+            event_id=str(item.get("eventID") or "?"),
         )
         return None
 
 
 async def _fetch_window(
     session: aiohttp.ClientSession,
-    payload: dict[str, str],
+    params: dict[str, str],
 ) -> list[dict[str, Any]]:
     """
-    POST to the AFAD API for one time window with exponential back-off retry.
+    GET the AFAD API for one time window with exponential back-off retry.
+
+    Uses SSL verification disabled — the AFAD server's certificate chain
+    causes connection resets under strict verification from Docker containers.
 
     Returns the list of raw event dicts (may be empty).
     Raises aiohttp.ClientError after all retries are exhausted.
@@ -174,24 +184,30 @@ async def _fetch_window(
     last_exc: Exception = RuntimeError("No attempts made")
     for attempt in range(_MAX_RETRIES):
         try:
-            async with session.post(
+            async with session.get(
                 _AFAD_URL,
-                json=payload,
+                params=params,
+                headers=_HEADERS,
+                ssl=False,  # AFAD cert causes connection resets under strict TLS
                 timeout=aiohttp.ClientTimeout(total=_HTTP_TIMEOUT_SECS),
+                allow_redirects=True,
             ) as resp:
                 resp.raise_for_status()
                 text = await resp.text()
-                if not text.strip():
+                if not text.strip() or text.strip() in ("null", "[]"):
                     return []
                 data: Any = json.loads(text)
                 if isinstance(data, list):
                     return data  # type: ignore[return-value]
-                # Some AFAD API versions wrap the array in {"result": [...]}
+                # Some API gateway versions wrap the array
                 if isinstance(data, dict):
                     for key in ("result", "data", "events", "items"):
                         if isinstance(data.get(key), list):
                             return data[key]  # type: ignore[return-value]
-                log.warning("afad_unexpected_response_shape", keys=list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+                log.warning(
+                    "afad_unexpected_response_shape",
+                    shape=type(data).__name__,
+                )
                 return []
         except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
             last_exc = exc
@@ -202,7 +218,7 @@ async def _fetch_window(
                 max_retries=_MAX_RETRIES,
                 delay_secs=delay,
                 error=str(exc),
-                window_start=payload.get("start"),
+                window_start=params.get("start"),
             )
             await asyncio.sleep(delay)
 
@@ -233,7 +249,7 @@ async def iter_afad_events(
     while cursor < end_time:
         window_end = min(cursor + window, end_time)
 
-        payload: dict[str, str] = {
+        params: dict[str, str] = {
             "start":  cursor.strftime("%Y-%m-%d %H:%M:%S"),
             "end":    window_end.strftime("%Y-%m-%d %H:%M:%S"),
             "minmag": str(_MIN_MAG),
@@ -245,11 +261,11 @@ async def iter_afad_events(
 
         log.debug(
             "afad_fetching_window",
-            start=payload["start"],
-            end=payload["end"],
+            start=params["start"],
+            end=params["end"],
         )
 
-        raw_items = await _fetch_window(session, payload)
+        raw_items = await _fetch_window(session, params)
         events = [e for item in raw_items if (e := _parse_afad_event(item)) is not None]
 
         if events:
