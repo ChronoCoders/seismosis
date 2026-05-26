@@ -16,16 +16,16 @@ get_conn() for health checks.
 """
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
+import structlog
 
 from .models import EnrichedEvent
 
-log = logging.getLogger(__name__)
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 class Database:

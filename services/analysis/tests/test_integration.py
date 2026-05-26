@@ -25,6 +25,7 @@ from typing import Generator
 import fastavro
 import psycopg2
 import pytest
+import structlog
 
 from analysis.avro_codec import AvroDecoder, AvroEncoder, SchemaRegistry
 from analysis.cache import Cache
@@ -236,7 +237,7 @@ class TestProcessMessageIntegration:
             cache=cache,
             metrics=metrics,
             config=integration_config,
-            logger=__import__("structlog").get_logger(),
+            logger=structlog.get_logger(),
         )
 
         # ── Verify PostgreSQL row ─────────────────────────────────────────
@@ -312,7 +313,7 @@ class TestProcessMessageIntegration:
             cache=cache,
             metrics=metrics,
             config=integration_config,
-            logger=__import__("structlog").get_logger(),
+            logger=structlog.get_logger(),
         )
 
         # A M6.3 Mw event should produce an alert

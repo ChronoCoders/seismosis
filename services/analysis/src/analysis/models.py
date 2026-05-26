@@ -119,7 +119,8 @@ class EnrichedEvent:
 
     @property
     def raw_payload_json(self) -> dict[str, Any]:
-        return json.loads(self.raw_payload)
+        result: dict[str, Any] = json.loads(self.raw_payload)
+        return result
 
     def to_avro_record(self) -> dict[str, Any]:
         """

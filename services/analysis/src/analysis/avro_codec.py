@@ -38,7 +38,7 @@ class SchemaRegistry:
         )
         self._by_id: dict[int, Any] = {}  # schema_id → parsed fastavro schema
 
-    def register(self, subject: str, schema: dict) -> int:
+    def register(self, subject: str, schema: dict[str, Any]) -> int:
         """
         Register *schema* under *subject* and return its integer ID.
 
@@ -101,7 +101,8 @@ class AvroDecoder:
             )
         schema_id = struct.unpack(">I", data[1:5])[0]
         schema = self._registry.get_parsed(schema_id)
-        return fastavro.schemaless_reader(io.BytesIO(data[5:]), schema)
+        result: dict[str, Any] = fastavro.schemaless_reader(io.BytesIO(data[5:]), schema)
+        return result
 
 
 class AvroEncoder:

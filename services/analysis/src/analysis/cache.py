@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-import logging
-from typing import Optional
+from typing import Any, Optional
 
 import redis as redis_lib
+import structlog
 
 from .models import EnrichedEvent
 
-log = logging.getLogger(__name__)
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _KEY_PREFIX = "analysis:event:"
 
@@ -23,7 +23,7 @@ class Cache:
     """Thin Redis wrapper for writing enriched event payloads."""
 
     def __init__(self, url: str) -> None:
-        self._client = redis_lib.Redis.from_url(url, decode_responses=True)
+        self._client: redis_lib.Redis[str] = redis_lib.Redis.from_url(url, decode_responses=True)
 
     def set_event(self, event: EnrichedEvent, ttl_secs: int) -> bool:
         """
@@ -60,7 +60,7 @@ class Cache:
             log.warning("redis SET failed: key=%s error=%s", key, exc)
             return False
 
-    def get_event(self, source_id: str) -> Optional[dict]:
+    def get_event(self, source_id: str) -> Optional[dict[str, Any]]:
         """
         Retrieve a cached enriched event dict, or None on miss/error.
 

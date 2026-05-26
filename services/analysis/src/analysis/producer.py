@@ -8,14 +8,14 @@ DLQ failures are non-fatal — the offset is committed regardless.
 from __future__ import annotations
 
 import json
-import logging
 from typing import Optional
 
+import structlog
 from confluent_kafka import KafkaError, KafkaException, Message, Producer
 
-log = logging.getLogger(__name__)
+log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-_BASE_CONF: dict = {
+_BASE_CONF: dict[str, object] = {
     "acks": "all",
     "enable.idempotence": True,
     "compression.type": "lz4",
@@ -25,7 +25,7 @@ _BASE_CONF: dict = {
     "linger.ms": 5,
 }
 
-_DLQ_OVERLAY: dict = {
+_DLQ_OVERLAY: dict[str, object] = {
     "acks": "1",
     "enable.idempotence": False,
     "message.timeout.ms": 5_000,

@@ -44,7 +44,7 @@ python_version = "3.11"
 strict = true
 # confluent-kafka ships no stubs; ignore missing imports for it and fastavro.
 [[tool.mypy.overrides]]
-module = ["confluent_kafka.*", "fastavro.*", "psycopg2.*", "prometheus_client.*"]
+module = ["confluent_kafka.*", "fastavro.*", "psycopg2.*", "prometheus_client.*", "requests.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

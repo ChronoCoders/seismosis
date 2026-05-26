@@ -46,7 +46,7 @@ class Config:
             db_pool_max=int(os.environ.get("DB_POOL_MAX", "10")),
             redis_url=os.environ.get("REDIS_URL", "redis://redis:6379"),
             event_cache_ttl_secs=int(os.environ.get("EVENT_CACHE_TTL_SECS", "3600")),
-            metrics_port=int(os.environ.get("METRICS_PORT", "9092")),
+            metrics_port=int(os.environ.get("METRICS_PORT", "9096")),
             alert_magnitude_threshold=float(
                 os.environ.get("ALERT_MAGNITUDE_THRESHOLD", "5.0")
             ),
