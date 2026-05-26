@@ -431,9 +431,7 @@ pub async fn get_phase3_stats(pool: &PgPool) -> Result<Phase3StatsFields, Reques
     .fetch_optional(pool)
     .await?;
 
-    let (b_value_region, mc_region) = gr_row
-        .map(|r| (r.b_value, r.mc))
-        .unwrap_or((None, None));
+    let (b_value_region, mc_region) = gr_row.map(|r| (r.b_value, r.mc)).unwrap_or((None, None));
 
     // Active ETAS sequences (last 7 days)
     #[derive(sqlx::FromRow)]

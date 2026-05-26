@@ -62,7 +62,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Both ingestion and api use ConnectionManager (connection-manager feature).
 # Each crate adds it in their own Cargo.toml; the workspace carries the
 # common tokio-comp base.
-redis = { version = "0.25", features = ["tokio-comp"] }
+redis = { version = "0.27", features = ["tokio-comp"] }
 
 # ── PostgreSQL ───────────────────────────────────────────────
 # storage and api both use runtime-tokio-rustls + postgres + chrono.

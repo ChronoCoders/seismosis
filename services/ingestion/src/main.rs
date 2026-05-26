@@ -187,9 +187,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             Err(e) => {
-                anyhow::bail!(
-                    "FDSN_SOURCES is set but could not be parsed as a JSON array: {e}"
-                );
+                anyhow::bail!("FDSN_SOURCES is set but could not be parsed as a JSON array: {e}");
             }
         }
     } else {

@@ -116,7 +116,7 @@ impl FdsnSource {
     ///
     /// - `source_name`    — short human-readable label (`"GFZ"`, `"INGV"`).
     /// - `network_prefix` — lowercase network code used in `source_id` prefixes
-    ///                      (`"gfz"`, `"ingv"`).
+    ///   (`"gfz"`, `"ingv"`).
     /// - `base_url`       — root URL of the fdsnws host, no trailing slash.
     pub fn new(
         source_name: &'static str,
