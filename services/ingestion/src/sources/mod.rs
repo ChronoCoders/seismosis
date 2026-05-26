@@ -1,5 +1,6 @@
 pub mod afad;
 pub mod emsc;
+pub mod fdsn;
 pub mod usgs;
 
 use async_trait::async_trait;

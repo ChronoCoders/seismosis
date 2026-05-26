@@ -1,8 +1,8 @@
 //! Seismosis Ingestion Service
 //!
-//! Polls the USGS, EMSC, and AFAD earthquake APIs, normalises events to a
-//! common schema, serialises with Avro against the Redpanda Schema Registry,
-//! and publishes to the `earthquakes.raw` topic.
+//! Polls the USGS, EMSC, AFAD, and optional FDSN network APIs (GFZ, INGV),
+//! normalises events to a common schema, serialises with Avro against the
+//! Redpanda Schema Registry, and publishes to the `earthquakes.raw` topic.
 //!
 //! ## Lifecycle
 //!
@@ -43,7 +43,9 @@ use dedup::Deduplicator;
 use metrics::Metrics;
 use producer::EventProducer;
 use registry::SchemaRegistryClient;
-use sources::{afad::AfadSource, emsc::EmscSource, usgs::UsgsSource, SeismicSource};
+use sources::{
+    afad::AfadSource, emsc::EmscSource, fdsn::FdsnSource, usgs::UsgsSource, SeismicSource,
+};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -128,7 +130,8 @@ async fn main() -> anyhow::Result<()> {
         "Dead-letter producer ready"
     );
 
-    let sources: Vec<Box<dyn SeismicSource>> = vec![
+    // Always-on sources.
+    let mut sources: Vec<Box<dyn SeismicSource>> = vec![
         Box::new(UsgsSource::new(
             http_client.clone(),
             Arc::clone(&config),
@@ -145,6 +148,33 @@ async fn main() -> anyhow::Result<()> {
             Arc::clone(&metrics),
         )),
     ];
+
+    // Optional FDSN network sources — disabled by default; enable via env var.
+    if std::env::var("FDSN_GFZ_ENABLED").as_deref() == Ok("true") {
+        info!("FDSN GFZ source enabled");
+        sources.push(Box::new(FdsnSource::new(
+            "GFZ",
+            "gfz",
+            std::env::var("FDSN_GFZ_BASE_URL")
+                .unwrap_or_else(|_| "https://geofon.gfz-potsdam.de".into()),
+            http_client.clone(),
+            Arc::clone(&config),
+            Arc::clone(&metrics),
+        )));
+    }
+
+    if std::env::var("FDSN_INGV_ENABLED").as_deref() == Ok("true") {
+        info!("FDSN INGV source enabled");
+        sources.push(Box::new(FdsnSource::new(
+            "INGV",
+            "ingv",
+            std::env::var("FDSN_INGV_BASE_URL")
+                .unwrap_or_else(|_| "https://webservices.ingv.it".into()),
+            http_client.clone(),
+            Arc::clone(&config),
+            Arc::clone(&metrics),
+        )));
+    }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
