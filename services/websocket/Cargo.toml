@@ -20,7 +20,6 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 
 # ── Kafka / Redpanda consumer ─────────────────────────────────
 rdkafka = { workspace = true }
-futures = { version = "0.3", default-features = false, features = ["alloc"] }
 
 # ── Avro serialisation ───────────────────────────────────────
 apache-avro = { workspace = true }

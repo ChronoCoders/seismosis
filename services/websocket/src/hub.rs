@@ -92,17 +92,31 @@ impl Hub {
     /// via `Arc` clones — no per-client copies of the event data are made.
     pub async fn broadcast_enriched(&self, event: EnrichedEvent) {
         let msg = Arc::new(ServerMessage::Earthquake(Box::new(event)));
-        // Extract the inner event reference before the read lock so the loop
-        // body can call matches_enriched directly without a per-iteration
-        // `if let` on the known variant.
+        // Extract the inner event reference for filter evaluation.
         let ServerMessage::Earthquake(ref enriched) = *msg else {
             unreachable!("msg was just constructed as Earthquake")
         };
-        let guard = self.clients.read().await;
 
-        for (id, entry) in guard.iter() {
-            if entry.filter.matches_enriched(enriched) {
-                self.try_send(*id, &entry.tx, Arc::clone(&msg), "enriched");
+        // Snapshot the client list under the read lock, then release the lock
+        // before sending. This keeps the critical section short and prevents
+        // slow or blocked channel sends from holding the lock across all clients.
+        let snapshot: Vec<(Uuid, mpsc::Sender<Arc<ServerMessage>>, bool)> = {
+            let guard = self.clients.read().await;
+            guard
+                .iter()
+                .map(|(id, entry)| {
+                    (
+                        *id,
+                        entry.tx.clone(),
+                        entry.filter.matches_enriched(enriched),
+                    )
+                })
+                .collect()
+        };
+
+        for (id, tx, matched) in snapshot {
+            if matched {
+                self.try_send(id, &tx, Arc::clone(&msg), "enriched");
             } else {
                 self.metrics
                     .messages_filtered_total
@@ -120,16 +134,24 @@ impl Hub {
     /// Fan-out an alert event to all clients whose filter matches.
     pub async fn broadcast_alert(&self, event: AlertEvent) {
         let msg = Arc::new(ServerMessage::Alert(event));
-        // Extract the inner event reference before the read lock (same pattern
-        // as broadcast_enriched — avoids a fragile inner `if let` in the loop).
+        // Extract the inner event reference for filter evaluation.
         let ServerMessage::Alert(ref alerted) = *msg else {
             unreachable!("msg was just constructed as Alert")
         };
-        let guard = self.clients.read().await;
 
-        for (id, entry) in guard.iter() {
-            if entry.filter.matches_alert(alerted) {
-                self.try_send(*id, &entry.tx, Arc::clone(&msg), "alert");
+        // Snapshot the client list under the read lock, then release the lock
+        // before sending (same pattern as broadcast_enriched).
+        let snapshot: Vec<(Uuid, mpsc::Sender<Arc<ServerMessage>>, bool)> = {
+            let guard = self.clients.read().await;
+            guard
+                .iter()
+                .map(|(id, entry)| (*id, entry.tx.clone(), entry.filter.matches_alert(alerted)))
+                .collect()
+        };
+
+        for (id, tx, matched) in snapshot {
+            if matched {
+                self.try_send(id, &tx, Arc::clone(&msg), "alert");
             } else {
                 self.metrics
                     .messages_filtered_total

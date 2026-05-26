@@ -88,8 +88,15 @@ pub enum ServerMessage {
 impl ServerMessage {
     /// Serialise to a JSON string for transmission over WebSocket.
     ///
-    /// Returns `None` for `Close` (internal signal, not transmitted).
-    pub fn to_json(&self) -> Option<String> {
+    /// Returns `Err` if serialisation fails so the caller can log and count
+    /// the failure rather than silently dropping the event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on `ServerMessage::Close`, which is an internal
+    /// control signal and must never be passed to this method.  Callers must
+    /// match on `Close` before calling `to_json()`.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
         // Use a separate, internally-tagged enum for serialisation so the
         // type tag is injected without adding a field to the domain structs.
         #[derive(Serialize)]
@@ -100,9 +107,11 @@ impl ServerMessage {
         }
 
         match self {
-            Self::Earthquake(e) => serde_json::to_string(&WireMsg::Earthquake(e)).ok(),
-            Self::Alert(a) => serde_json::to_string(&WireMsg::Alert(a)).ok(),
-            Self::Close => None,
+            Self::Earthquake(e) => serde_json::to_string(&WireMsg::Earthquake(e)),
+            Self::Alert(a) => serde_json::to_string(&WireMsg::Alert(a)),
+            Self::Close => unreachable!(
+                "to_json() must not be called on ServerMessage::Close; \n                 callers must handle Close before calling to_json()"
+            ),
         }
     }
 }

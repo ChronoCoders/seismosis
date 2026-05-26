@@ -36,7 +36,7 @@ use std::time::Instant;
 
 use apache_avro::from_value;
 use axum::{body::Body, http::Response, routing::get, Router};
-use futures::StreamExt;
+use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::Message;
@@ -339,6 +339,10 @@ async fn run_consume_loop(
                                             ml_magnitude = event.ml_magnitude,
                                             "EnrichedEvent has non-finite ml_magnitude — skipping"
                                         );
+                                        metrics
+                                            .messages_invalid_total
+                                            .with_label_values(&["non_finite_magnitude"])
+                                            .inc();
                                     } else {
                                         hub.broadcast_enriched(event).await;
                                         metrics
@@ -368,6 +372,10 @@ async fn run_consume_loop(
                                             ml_magnitude = event.ml_magnitude,
                                             "AlertEvent has non-finite ml_magnitude — skipping"
                                         );
+                                        metrics
+                                            .messages_invalid_total
+                                            .with_label_values(&["non_finite_magnitude"])
+                                            .inc();
                                     } else {
                                         hub.broadcast_alert(event).await;
                                         metrics
@@ -511,14 +519,22 @@ async fn run_metrics_server(
                                 Response::builder()
                                     .status(500)
                                     .body(Body::empty())
-                                    .expect("static 500 response")
+                                    .unwrap_or_else(|_| {
+                                        axum::response::IntoResponse::into_response(
+                                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        )
+                                    })
                             }),
                         Err(e) => {
                             error!(error = %e, "Failed to encode Prometheus metrics");
                             Response::builder()
                                 .status(500)
                                 .body(Body::from(e.to_string()))
-                                .expect("static error response")
+                                .unwrap_or_else(|_| {
+                                    axum::response::IntoResponse::into_response(
+                                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                    )
+                                })
                         }
                     }
                 }

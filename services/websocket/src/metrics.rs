@@ -31,6 +31,10 @@ pub struct Metrics {
     /// Messages dropped because a client's outbound channel was full.
     pub messages_dropped_total: CounterVec,
 
+    /// Messages skipped before fan-out due to data quality issues.
+    /// `reason` label: "non_finite_magnitude" | ...
+    pub messages_invalid_total: CounterVec,
+
     /// End-to-end duration of the broadcast fan-out for one Kafka message
     /// (from message received to all channel sends attempted).
     /// `topic` label: "enriched" | "alert"
@@ -105,6 +109,14 @@ impl Metrics {
             &["topic"],
         )?);
 
+        let messages_invalid_total = register!(CounterVec::new(
+            Opts::new(
+                "seismosis_websocket_messages_invalid_total",
+                "Messages skipped before fan-out due to data quality issues",
+            ),
+            &["reason"], // "non_finite_magnitude" | ...
+        )?);
+
         let broadcast_duration_seconds = register!(HistogramVec::new(
             HistogramOpts::new(
                 "seismosis_websocket_broadcast_duration_seconds",
@@ -124,6 +136,7 @@ impl Metrics {
             messages_delivered_total,
             messages_filtered_total,
             messages_dropped_total,
+            messages_invalid_total,
             broadcast_duration_seconds,
             registry,
         }))

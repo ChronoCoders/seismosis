@@ -19,10 +19,10 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio_tungstenite::{
-    accept_hdr_async,
+    accept_hdr_async_with_config,
     tungstenite::{
         handshake::server::{Request, Response},
-        protocol::{frame::coding::CloseCode, CloseFrame},
+        protocol::{frame::coding::CloseCode, CloseFrame, WebSocketConfig},
         Message as WsMessage,
     },
 };
@@ -46,11 +46,22 @@ pub async fn handle_connection(
     // callback fires synchronously during the handshake (before the future
     // resolves), so a stack-allocated Mutex is sufficient — no Arc needed.
     let captured_query = std::sync::Mutex::new(String::new());
-    let ws_result = accept_hdr_async(stream, |req: &Request, resp: Response| {
-        *captured_query.lock().unwrap_or_else(|e| e.into_inner()) =
-            req.uri().query().unwrap_or("").to_owned();
-        Ok(resp)
-    })
+    // Limit inbound WebSocket message size to 64 KiB to bound per-connection
+    // memory use. Browser clients only send small control messages
+    // (subscribe JSON), so this limit is generous.
+    let ws_config = WebSocketConfig {
+        max_message_size: Some(64 * 1024),
+        ..Default::default()
+    };
+    let ws_result = accept_hdr_async_with_config(
+        stream,
+        |req: &Request, resp: Response| {
+            *captured_query.lock().unwrap_or_else(|e| e.into_inner()) =
+                req.uri().query().unwrap_or("").to_owned();
+            Ok(resp)
+        },
+        Some(ws_config),
+    )
     .await;
 
     let ws_stream = match ws_result {
@@ -63,7 +74,9 @@ pub async fn handle_connection(
 
     // After the await the future (and the closure it held) are gone; the
     // Mutex is no longer borrowed and into_inner() can move out the String.
-    let query = captured_query.into_inner().unwrap_or_default();
+    let query = captured_query
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner());
     let filter = SubscriptionFilter::from_query(&query, default_min_magnitude);
 
     let client_id = Uuid::new_v4();
@@ -164,19 +177,19 @@ pub async fn handle_connection(
                             }
                             other => {
                                 match other.to_json() {
-                                    Some(json) => {
+                                    Ok(json) => {
                                         if ws_write.send(WsMessage::Text(json)).await.is_err() {
                                             break "error";
                                         }
                                     }
-                                    None => {
-                                        // to_json() returns None only for Close, which is
-                                        // handled above.  A None here means a new
-                                        // ServerMessage variant was added without updating
-                                        // to_json() — log so it surfaces in structured logs.
+                                    Err(e) => {
+                                        // Serialisation failure is unexpected for well-formed
+                                        // domain structs, but must be logged rather than
+                                        // silently dropped so it surfaces in structured logs.
                                         warn!(
                                             client_id = %client_id,
-                                            "to_json() returned None for non-Close message — skipping"
+                                            error = %e,
+                                            "to_json() serialisation failed -- skipping message"
                                         );
                                     }
                                 }
@@ -246,12 +259,28 @@ async fn handle_client_message(text: &str, client_id: Uuid, hub: &Hub) {
     };
 
     if msg.msg_type == "subscribe" {
+        // Validate lat/lon values: same domain rules as from_query().
+        // Non-finite or out-of-range values are treated as unset (None).
+        let valid_lat = |v: f64| -> Option<f64> {
+            if v.is_finite() && (-90.0..=90.0).contains(&v) {
+                Some(v)
+            } else {
+                None
+            }
+        };
+        let valid_lon = |v: f64| -> Option<f64> {
+            if v.is_finite() && (-180.0..=180.0).contains(&v) {
+                Some(v)
+            } else {
+                None
+            }
+        };
         let new_filter = SubscriptionFilter {
-            min_magnitude: msg.min_magnitude.unwrap_or(0.0),
-            lat_min: msg.lat_min,
-            lat_max: msg.lat_max,
-            lon_min: msg.lon_min,
-            lon_max: msg.lon_max,
+            min_magnitude: msg.min_magnitude.filter(|v| v.is_finite()).unwrap_or(0.0),
+            lat_min: msg.lat_min.and_then(valid_lat),
+            lat_max: msg.lat_max.and_then(valid_lat),
+            lon_min: msg.lon_min.and_then(valid_lon),
+            lon_max: msg.lon_max.and_then(valid_lon),
             source_networks: msg
                 .source_networks
                 .unwrap_or_default()

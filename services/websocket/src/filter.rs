@@ -26,6 +26,8 @@
 //!
 //! Omitted fields reset to their defaults (no restriction).
 
+use std::collections::HashSet;
+
 use crate::event::{AlertEvent, EnrichedEvent};
 
 /// Subscription filter applied to every broadcast event for a single client.
@@ -44,7 +46,20 @@ pub struct SubscriptionFilter {
     pub lon_max: Option<f64>,
 
     /// Allowed source networks (upper-cased). Empty = all networks.
-    pub source_networks: Vec<String>,
+    pub source_networks: HashSet<String>,
+}
+
+/// Returns `Some(v)` if `v` is finite and within `[lo, hi]`; otherwise `None`.
+///
+/// Used to validate lat/lon values from query parameters and subscribe messages
+/// before storing them in a `SubscriptionFilter`. Invalid values are silently
+/// dropped, consistent with the documented behaviour for malformed parameters.
+fn validated_coord(v: f64, lo: f64, hi: f64) -> Option<f64> {
+    if v.is_finite() && v >= lo && v <= hi {
+        Some(v)
+    } else {
+        None
+    }
 }
 
 impl SubscriptionFilter {
@@ -57,7 +72,7 @@ impl SubscriptionFilter {
             lat_max: None,
             lon_min: None,
             lon_max: None,
-            source_networks: Vec::new(),
+            source_networks: HashSet::new(),
         };
 
         for pair in query.split('&') {
@@ -84,22 +99,25 @@ impl SubscriptionFilter {
                 }
                 "lat_min" => {
                     if let Ok(v) = val.parse::<f64>() {
-                        filter.lat_min = Some(v);
+                        // Latitude domain: [-90.0, 90.0]. Non-finite or out-of-range
+                        // values are silently ignored, same as malformed parameters.
+                        filter.lat_min = validated_coord(v, -90.0, 90.0);
                     }
                 }
                 "lat_max" => {
                     if let Ok(v) = val.parse::<f64>() {
-                        filter.lat_max = Some(v);
+                        filter.lat_max = validated_coord(v, -90.0, 90.0);
                     }
                 }
                 "lon_min" => {
                     if let Ok(v) = val.parse::<f64>() {
-                        filter.lon_min = Some(v);
+                        // Longitude domain: [-180.0, 180.0].
+                        filter.lon_min = validated_coord(v, -180.0, 180.0);
                     }
                 }
                 "lon_max" => {
                     if let Ok(v) = val.parse::<f64>() {
-                        filter.lon_max = Some(v);
+                        filter.lon_max = validated_coord(v, -180.0, 180.0);
                     }
                 }
                 "source_networks" => {
@@ -126,7 +144,7 @@ impl SubscriptionFilter {
         }
         if !self.source_networks.is_empty() {
             let net = event.source_network.to_uppercase();
-            if !self.source_networks.iter().any(|n| n == &net) {
+            if !self.source_networks.contains(&net) {
                 return false;
             }
         }
@@ -287,5 +305,28 @@ mod tests {
         let f = SubscriptionFilter::from_query("min_magnitude=abc&lat_min=notanumber", 0.0);
         assert_eq!(f.min_magnitude, 0.0);
         assert!(f.lat_min.is_none());
+    }
+
+    #[test]
+    fn non_finite_lat_lon_are_rejected() {
+        // NaN and Inf must be treated as unset (None), not stored.
+        let f =
+            SubscriptionFilter::from_query("lat_min=NaN&lat_max=inf&lon_min=-inf&lon_max=NaN", 0.0);
+        assert!(f.lat_min.is_none(), "NaN lat_min should be rejected");
+        assert!(f.lat_max.is_none(), "inf lat_max should be rejected");
+        assert!(f.lon_min.is_none(), "-inf lon_min should be rejected");
+        assert!(f.lon_max.is_none(), "NaN lon_max should be rejected");
+    }
+
+    #[test]
+    fn out_of_range_lat_lon_are_rejected() {
+        let f = SubscriptionFilter::from_query(
+            "lat_min=-91.0&lat_max=91.0&lon_min=-181.0&lon_max=181.0",
+            0.0,
+        );
+        assert!(f.lat_min.is_none(), "lat_min=-91 should be rejected");
+        assert!(f.lat_max.is_none(), "lat_max=91 should be rejected");
+        assert!(f.lon_min.is_none(), "lon_min=-181 should be rejected");
+        assert!(f.lon_max.is_none(), "lon_max=181 should be rejected");
     }
 }
