@@ -112,6 +112,8 @@ class EnrichedEvent:
     estimated_intensity_mmi: float
     enriched_at_ms: int
     analysis_version: str
+    event_class: Optional[str] = None          # "tectonic" | "induced" | "volcanic"
+    class_confidence: Optional[float] = None   # classifier confidence in [0, 1]
 
     @property
     def event_time(self) -> datetime:
@@ -157,6 +159,8 @@ class EnrichedEvent:
             "estimated_intensity_mmi": self.estimated_intensity_mmi,
             "enriched_at_ms": _from_ms(self.enriched_at_ms),
             "analysis_version": self.analysis_version,
+            "event_class": self.event_class,
+            "class_confidence": _opt_float(self.class_confidence),
         }
 
 

@@ -1,8 +1,12 @@
 use utoipa::OpenApi;
 
-use crate::model::{BandStats, EventListResponse, EventResponse, EventsQuery, StatsResponse};
+use crate::model::{
+    AftershockForecastResponse, BandStats, EventClassificationResponse, EventListResponse,
+    EventResponse, EventsQuery, GrAnalysisResponse, GrMapQuery, GrMapResponse,
+    RegionalForecastQuery, RegionalForecastResponse, StatsResponse,
+};
 use crate::routes::health::{DependencyStatus, HealthResponse};
-use crate::routes::{events, health, stats};
+use crate::routes::{analysis, events, forecasts, health, stats};
 
 /// OpenAPI 3.1 specification for the Seismosis REST API.
 ///
@@ -13,8 +17,8 @@ use crate::routes::{events, health, stats};
 #[openapi(
     info(
         title = "Seismosis API",
-        version = "0.1.0",
-        description = "Earthquake event query and risk statistics API — Phase 1",
+        version = "0.2.0",
+        description = "Earthquake event query, risk statistics, and Phase 3 forecast API",
         contact(
             name = "Seismosis",
             url = "https://github.com/seismosis"
@@ -26,6 +30,11 @@ use crate::routes::{events, health, stats};
         events::list_events,
         events::get_event,
         stats::get_stats,
+        forecasts::get_aftershock_forecast,
+        forecasts::get_regional_forecast,
+        analysis::get_gr_analysis,
+        analysis::get_gr_map,
+        analysis::get_event_classification,
     ),
     components(
         schemas(
@@ -36,12 +45,21 @@ use crate::routes::{events, health, stats};
             BandStats,
             HealthResponse,
             DependencyStatus,
+            AftershockForecastResponse,
+            RegionalForecastResponse,
+            RegionalForecastQuery,
+            GrAnalysisResponse,
+            GrMapResponse,
+            GrMapQuery,
+            EventClassificationResponse,
         )
     ),
     tags(
-        (name = "events", description = "Earthquake event queries"),
-        (name = "stats",  description = "Aggregate seismic statistics"),
-        (name = "health", description = "Service health check"),
+        (name = "events",    description = "Earthquake event queries"),
+        (name = "stats",     description = "Aggregate seismic statistics"),
+        (name = "health",    description = "Service health check"),
+        (name = "forecasts", description = "ETAS aftershock and regional seismicity forecasts"),
+        (name = "analysis",  description = "Gutenberg-Richter analysis and event classification"),
     )
 )]
 pub struct ApiDoc;

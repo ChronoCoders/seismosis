@@ -5,7 +5,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::RequestError;
-use crate::model::{BandStats, EventResponse, EventsQuery};
+use crate::model::{
+    AftershockForecastResponse, BandStats, EventClassificationResponse, EventResponse, EventsQuery,
+    GrAnalysisResponse,
+};
 
 /// Flat row returned by the events list query.
 ///
@@ -396,6 +399,272 @@ pub async fn get_stats(pool: &PgPool) -> Result<Vec<BandStats>, RequestError> {
     }
 
     Ok(result)
+}
+
+// ── Phase 3 forecast and analysis queries ─────────────────────────────────────
+
+#[derive(sqlx::FromRow)]
+struct EtasForecastRow {
+    id: i64,
+    mainshock_source_id: String,
+    computed_at: DateTime<Utc>,
+    horizon_days: i32,
+    min_magnitude: f64,
+    expected_count: f64,
+    p_at_least_one: f64,
+    p_exceedance: Option<serde_json::Value>,
+    daily_rates: Option<serde_json::Value>,
+    params_zone: Option<String>,
+    params_snapshot: Option<serde_json::Value>,
+    model_version: String,
+}
+
+impl From<EtasForecastRow> for AftershockForecastResponse {
+    fn from(r: EtasForecastRow) -> Self {
+        let _ = r.id;
+        AftershockForecastResponse {
+            mainshock_source_id: r.mainshock_source_id,
+            computed_at: r.computed_at,
+            horizon_days: r.horizon_days,
+            min_magnitude: r.min_magnitude,
+            expected_count: r.expected_count,
+            p_at_least_one: r.p_at_least_one,
+            p_exceedance: r.p_exceedance,
+            daily_rates: r.daily_rates,
+            params_zone: r.params_zone,
+            params_snapshot: r.params_snapshot,
+            model_version: r.model_version,
+        }
+    }
+}
+
+/// Fetch the latest ETAS forecast for a given mainshock `source_id`.
+///
+/// Returns `None` when no forecast has been computed yet.
+pub async fn get_aftershock_forecast(
+    pool: &PgPool,
+    source_id: &str,
+) -> Result<Option<AftershockForecastResponse>, RequestError> {
+    const SQL: &str = r#"
+        SELECT
+            id,
+            mainshock_source_id,
+            computed_at,
+            horizon_days,
+            min_magnitude::float8          AS min_magnitude,
+            expected_count::float8         AS expected_count,
+            p_at_least_one::float8         AS p_at_least_one,
+            p_exceedance,
+            daily_rates,
+            params_zone,
+            params_snapshot,
+            model_version
+        FROM seismology.etas_forecasts
+        WHERE mainshock_source_id = $1
+        ORDER BY computed_at DESC
+        LIMIT 1
+    "#;
+
+    let row = sqlx::query_as::<_, EtasForecastRow>(SQL)
+        .bind(source_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row.map(AftershockForecastResponse::from))
+}
+
+/// Fetch the latest ETAS spatial heatmaps for `GET /v1/forecasts/regional`.
+///
+/// Returns one heatmap GeoJSON `Value` per recent ETAS run (up to 50),
+/// collected from the `spatial_heatmap` column. Null heatmaps are skipped.
+/// When no ETAS runs exist an empty `Vec` is returned.
+pub async fn get_regional_heatmaps(
+    pool: &PgPool,
+    horizon_days: i32,
+) -> Result<Vec<serde_json::Value>, RequestError> {
+    const SQL: &str = r#"
+        SELECT spatial_heatmap
+        FROM seismology.etas_forecasts
+        WHERE horizon_days = $1
+          AND spatial_heatmap IS NOT NULL
+        ORDER BY computed_at DESC
+        LIMIT 50
+    "#;
+
+    #[derive(sqlx::FromRow)]
+    struct HeatmapRow {
+        spatial_heatmap: serde_json::Value,
+    }
+
+    let rows = sqlx::query_as::<_, HeatmapRow>(SQL)
+        .bind(horizon_days)
+        .fetch_all(pool)
+        .await?;
+
+    Ok(rows.into_iter().map(|r| r.spatial_heatmap).collect())
+}
+
+#[derive(sqlx::FromRow)]
+struct GrAnalysisRow {
+    id: i64,
+    computed_at: DateTime<Utc>,
+    region_name: Option<String>,
+    b_value: f64,
+    b_std: f64,
+    a_value: f64,
+    mc: f64,
+    n_events: i32,
+    catalog_start: DateTime<Utc>,
+    catalog_end: DateTime<Utc>,
+    model_version: String,
+}
+
+impl From<GrAnalysisRow> for GrAnalysisResponse {
+    fn from(r: GrAnalysisRow) -> Self {
+        GrAnalysisResponse {
+            id: r.id,
+            computed_at: r.computed_at,
+            region_name: r.region_name,
+            b_value: r.b_value,
+            b_std: r.b_std,
+            a_value: r.a_value,
+            mc: r.mc,
+            n_events: r.n_events,
+            catalog_start: r.catalog_start,
+            catalog_end: r.catalog_end,
+            model_version: r.model_version,
+        }
+    }
+}
+
+/// Fetch the latest catalog-wide (non-gridded) GR analysis result.
+///
+/// Returns `None` when the forecast service has not run yet.
+pub async fn get_gr_analysis(pool: &PgPool) -> Result<Option<GrAnalysisResponse>, RequestError> {
+    const SQL: &str = r#"
+        SELECT
+            id,
+            computed_at,
+            region_name,
+            b_value::float8  AS b_value,
+            b_std::float8    AS b_std,
+            a_value::float8  AS a_value,
+            mc::float8       AS mc,
+            n_events,
+            catalog_start,
+            catalog_end,
+            model_version
+        FROM seismology.gr_analysis
+        WHERE grid_cell IS NULL
+        ORDER BY computed_at DESC
+        LIMIT 1
+    "#;
+
+    let row = sqlx::query_as::<_, GrAnalysisRow>(SQL)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row.map(GrAnalysisResponse::from))
+}
+
+/// Fetch all gridded GR cells as GeoJSON features.
+///
+/// Each row's `grid_cell` geography is serialised via `ST_AsGeoJSON`.
+/// Returns up to 2 000 cells, ordered by most recently computed first.
+pub async fn get_gr_cells(pool: &PgPool) -> Result<Vec<serde_json::Value>, RequestError> {
+    const SQL: &str = r#"
+        SELECT
+            b_value::float8          AS b_value,
+            b_std::float8            AS b_std,
+            a_value::float8          AS a_value,
+            mc::float8               AS mc,
+            n_events,
+            region_name,
+            model_version,
+            computed_at,
+            ST_AsGeoJSON(grid_cell)  AS cell_geojson
+        FROM seismology.gr_analysis
+        WHERE grid_cell IS NOT NULL
+        ORDER BY computed_at DESC
+        LIMIT 2000
+    "#;
+
+    #[derive(sqlx::FromRow)]
+    struct GrCellRow {
+        b_value: f64,
+        b_std: f64,
+        a_value: f64,
+        mc: f64,
+        n_events: i32,
+        region_name: Option<String>,
+        model_version: String,
+        computed_at: DateTime<Utc>,
+        cell_geojson: Option<String>,
+    }
+
+    let rows = sqlx::query_as::<_, GrCellRow>(SQL).fetch_all(pool).await?;
+
+    let features = rows
+        .into_iter()
+        .filter_map(|r| {
+            let geom: serde_json::Value =
+                r.cell_geojson.and_then(|s| serde_json::from_str(&s).ok())?;
+            Some(serde_json::json!({
+                "type": "Feature",
+                "geometry": geom,
+                "properties": {
+                    "b_value":      r.b_value,
+                    "b_std":        r.b_std,
+                    "a_value":      r.a_value,
+                    "mc":           r.mc,
+                    "n_events":     r.n_events,
+                    "region_name":  r.region_name,
+                    "model_version": r.model_version,
+                    "computed_at":  r.computed_at.to_rfc3339(),
+                }
+            }))
+        })
+        .collect();
+
+    Ok(features)
+}
+
+#[derive(sqlx::FromRow)]
+struct ClassificationRow {
+    source_id: String,
+    event_class: Option<String>,
+    class_confidence: Option<f64>,
+}
+
+/// Fetch the seismicity classification for a single event by `source_id`.
+///
+/// Returns `None` when no event with that `source_id` exists.
+/// `event_class` may be `null` within the returned struct when the
+/// classification service has not yet processed the event.
+pub async fn get_event_classification(
+    pool: &PgPool,
+    source_id: &str,
+) -> Result<Option<EventClassificationResponse>, RequestError> {
+    const SQL: &str = r#"
+        SELECT
+            source_id,
+            event_class,
+            class_confidence::float8 AS class_confidence
+        FROM seismology.seismic_events
+        WHERE source_id = $1
+        LIMIT 1
+    "#;
+
+    let row = sqlx::query_as::<_, ClassificationRow>(SQL)
+        .bind(source_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row.map(|r| EventClassificationResponse {
+        source_id: r.source_id,
+        event_class: r.event_class,
+        class_confidence: r.class_confidence,
+    }))
 }
 
 #[cfg(test)]

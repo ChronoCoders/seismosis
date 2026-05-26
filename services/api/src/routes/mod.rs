@@ -1,4 +1,6 @@
+pub mod analysis;
 pub mod events;
+pub mod forecasts;
 pub mod health;
 pub mod metrics_handler;
 pub mod stats;
@@ -61,6 +63,22 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/events", get(events::list_events))
         .route("/v1/events/:id", get(events::get_event))
         .route("/v1/stats", get(stats::get_stats))
+        // Phase 3: ETAS forecast endpoints
+        .route(
+            "/v1/forecasts/aftershock/:source_id",
+            get(forecasts::get_aftershock_forecast),
+        )
+        .route(
+            "/v1/forecasts/regional",
+            get(forecasts::get_regional_forecast),
+        )
+        // Phase 3: GR analysis and event classification endpoints
+        .route("/v1/analysis/gr", get(analysis::get_gr_analysis))
+        .route("/v1/analysis/gr/map", get(analysis::get_gr_map))
+        .route(
+            "/v1/analysis/classification/:source_id",
+            get(analysis::get_event_classification),
+        )
         // NOTE: /metrics is on the public port in Phase 1 — see module doc.
         .route("/metrics", get(metrics_handler::metrics))
         .merge(SwaggerUi::new("/docs").url("/docs/openapi.json", ApiDoc::openapi()))

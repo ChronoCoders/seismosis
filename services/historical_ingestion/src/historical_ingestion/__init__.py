@@ -1,0 +1,1 @@
+"""Seismosis historical ingestion service."""

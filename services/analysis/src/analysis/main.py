@@ -55,6 +55,7 @@ from .magnitude import refine_to_ml
 from .metrics import Metrics
 from .models import AlertEvent, EnrichedEvent, RawEvent
 from .producer import KafkaProducer
+from .classifier import classify_event
 from .risk import alert_level, estimate_epicentral_mmi, estimate_felt_radius_km
 from .schema import ALERT_SCHEMA, ALERT_SUBJECT, ENRICHED_SCHEMA, ENRICHED_SUBJECT
 
@@ -208,6 +209,26 @@ def process_message(
 
     now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
+    # Seismicity classification (tectonic / induced / volcanic).
+    # Non-fatal: a failure here must not block the enriched produce.
+    event_class: Optional[str] = None
+    class_confidence: Optional[float] = None
+    try:
+        classification = classify_event(
+            magnitude=ml_magnitude,
+            depth_km=event.depth_km,
+            b_value_local=None,  # no local b-value at single-event time
+            magnitude_type=event.magnitude_type,
+        )
+        event_class = classification.event_class
+        class_confidence = classification.confidence
+    except Exception as exc:
+        logger.warning(
+            "classifier_error",
+            source_id=source_id,
+            error=str(exc),
+        )
+
     enriched = EnrichedEvent(
         source_id=event.source_id,
         source_network=event.source_network,
@@ -233,6 +254,8 @@ def process_message(
         estimated_intensity_mmi=mmi,
         enriched_at_ms=now_ms,
         analysis_version=config.analysis_version,
+        event_class=event_class,
+        class_confidence=class_confidence,
     )
 
     try:
