@@ -103,6 +103,8 @@ async fn main() -> anyhow::Result<()> {
         // ~8 s (DLQ: 4 attempts × up to 2 s sleep + 5 s delivery timeout), so
         // this value provides a very wide safety margin and will never be hit.
         .set("max.poll.interval.ms", "300000")
+        .set("fetch.min.bytes", "1") // respond immediately on any available data
+        .set("fetch.wait.max.ms", "100") // reduce idle poll latency
         .create()
         .map_err(|e| anyhow::anyhow!("kafka consumer: {}", e))?;
 
@@ -285,6 +287,10 @@ async fn consume_loop(ctx: ConsumeCtx, mut shutdown: watch::Receiver<bool>) {
                             partition,
                             offset, "DLQ delivery failed — offset not committed"
                         );
+                        metrics
+                            .events_dlq_delivery_failed_total
+                            .with_label_values(&[&topic])
+                            .inc();
                         false
                     }
                 }
