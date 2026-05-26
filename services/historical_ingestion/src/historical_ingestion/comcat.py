@@ -140,8 +140,8 @@ async def _fetch_page(
         "minmagnitude": str(_MIN_MAG),
         "orderby": "time-asc",
         "limit": str(_PAGE_LIMIT),
-        "starttime": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "endtime": end_time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "starttime": start_time.strftime("%Y-%m-%dT%H:%M:%S.") + f"{start_time.microsecond // 1000:03d}",
+        "endtime": end_time.strftime("%Y-%m-%dT%H:%M:%S.") + f"{end_time.microsecond // 1000:03d}",
     }
 
     last_exc: Exception = RuntimeError("No attempts made")
