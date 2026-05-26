@@ -47,6 +47,9 @@ pub enum ProcessError {
     #[error("validation failed: field={field}: {detail}")]
     Validation { field: &'static str, detail: String },
 
+    #[error("database query failed: {0}")]
+    DbQuery(String),
+
     #[error("database upsert failed: {0}")]
     DbUpsert(String),
 }
@@ -60,6 +63,7 @@ impl ProcessError {
             ProcessError::AvroDecode(_) => "avro_decode_error",
             ProcessError::InvalidPayloadJson(_) => "invalid_payload_json",
             ProcessError::Validation { .. } => "validation_error",
+            ProcessError::DbQuery(_) => "db_query_error",
             ProcessError::DbUpsert(_) => "db_upsert_error",
         }
     }

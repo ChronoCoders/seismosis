@@ -149,5 +149,10 @@ impl DlqProducer {
 }
 
 fn to_hex(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write as _;
+    let mut s = String::with_capacity(data.len() * 2);
+    for b in data {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }

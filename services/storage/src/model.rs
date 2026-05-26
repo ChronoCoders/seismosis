@@ -60,6 +60,17 @@ impl RawFields {
                 detail: "must not be empty".to_owned(),
             });
         }
+        // Aligns with DB column TEXT — enforcing an application-level ceiling of
+        // 255 characters to prevent absurdly large keys in dedup lookups / indexes.
+        if self.source_id.len() > 255 {
+            return Err(ProcessError::Validation {
+                field: "source_id",
+                detail: format!(
+                    "length {} exceeds 255-character limit",
+                    self.source_id.len()
+                ),
+            });
+        }
 
         // source_network — aligns with DB column VARCHAR(50).
         if self.source_network.len() > 50 {

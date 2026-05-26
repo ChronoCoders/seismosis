@@ -43,8 +43,11 @@ pub async fn find_cross_source_match(
         FROM seismology.seismic_events
         WHERE source_network != $1
           AND ABS(EXTRACT(EPOCH FROM (event_time - $2))) <= 30
-          AND ABS(ST_X(location)::float8 - $3) <= 0.5
-          AND ABS(ST_Y(location)::float8 - $4) <= 0.5
+          AND ST_DWithin(
+                location::geography,
+                ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography,
+                55000
+              )
         LIMIT 1
     "#;
 
@@ -61,7 +64,7 @@ pub async fn find_cross_source_match(
         .bind(event.latitude)
         .fetch_optional(pool)
         .await
-        .map_err(|e| ProcessError::DbUpsert(e.to_string()))?;
+        .map_err(|e| ProcessError::DbQuery(e.to_string()))?;
 
     Ok(row.map(|r| CrossSourceMatch {
         source_id: r.source_id,
@@ -76,7 +79,8 @@ pub fn quality_rank(q: &str) -> u8 {
         "A" => 4,
         "B" => 3,
         "C" => 2,
-        _ => 1,
+        "D" => 1,
+        other => unreachable!("quality_rank called with unvalidated indicator: {other:?}"),
     }
 }
 
@@ -198,11 +202,14 @@ pub async fn upsert_event(
     // write.
     if let Some(mut conn) = redis {
         let cache_key = format!("api:event:{}", event.source_id);
-        tokio::spawn(async move {
+        // Fire-and-forget: the spawned task cannot panic — `del()` is the only
+        // fallible operation and its Err path is handled with a warn!. The
+        // JoinHandle is detached intentionally; we do not need to await it.
+        drop(tokio::spawn(async move {
             if let Err(e) = conn.del::<_, ()>(&cache_key).await {
                 tracing::warn!(key = %cache_key, error = %e, "Redis DEL failed");
             }
-        });
+        }));
     }
 
     Ok(())

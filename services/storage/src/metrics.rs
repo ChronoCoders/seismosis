@@ -28,6 +28,10 @@ pub struct Metrics {
     /// already exists within the 30 s / 0.5° deduplication window and has
     /// equal or better quality.
     pub cross_source_duplicates_total: CounterVec,
+
+    /// Messages for which DLQ delivery was exhausted — offset not committed,
+    /// message will be reprocessed on the next consumer restart.
+    pub events_dlq_delivery_failed_total: CounterVec,
 }
 
 impl Metrics {
@@ -82,6 +86,14 @@ impl Metrics {
         )
         .map_err(|e| StorageError::Metrics(e.to_string()))?;
 
+        let events_dlq_delivery_failed_total = register_counter_vec_with_registry!(
+            "seismosis_storage_events_dlq_delivery_failed_total",
+            "Messages for which DLQ delivery exhausted all retries — offset not committed",
+            &["topic"],
+            registry
+        )
+        .map_err(|e| StorageError::Metrics(e.to_string()))?;
+
         Ok(Self {
             messages_consumed_total,
             events_upserted_total,
@@ -89,6 +101,7 @@ impl Metrics {
             processing_duration_seconds,
             db_write_duration_seconds,
             cross_source_duplicates_total,
+            events_dlq_delivery_failed_total,
         })
     }
 }
