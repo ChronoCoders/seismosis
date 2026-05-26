@@ -496,7 +496,8 @@ def main() -> None:
         sys.exit(1)
 
     # Configure structlog
-    log_level_int: int = getattr(logging, config.log_level.upper(), logging.INFO)
+    _level_map: dict[str, int] = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
+    log_level_int: int = _level_map.get(config.log_level.upper(), 20)
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,
