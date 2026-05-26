@@ -242,7 +242,7 @@ groups:
         annotations:
           summary: "Redis memory at {{ $value | humanizePercentage }} of limit"
           description: >
-            Redis is using {{ $value | humanizePercentage }} of its maxmemory (512MB).
+            Redis is using {{ $value | humanizePercentage }} of its maxmemory (200MB).
             LRU eviction will start aggressively. Cache hit rates may drop.
             Consider increasing maxmemory or reviewing cache TTLs.
           runbook_url: "https://docs.seismosis.internal/runbooks/redis-memory"

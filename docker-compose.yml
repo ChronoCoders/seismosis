@@ -23,6 +23,7 @@
 #   9187  → Postgres Exporter               9121  → Redis Exporter
 #   8000  → API (REST + /metrics + /docs)   9093  → WebSocket (client connections)
 #   9092  → Analysis /metrics + /health (internal only)
+#   9095  → Storage /metrics (internal only)
 #   3001  → Frontend (Next.js Turkish SPA)
 
 name: seismosis
@@ -134,6 +135,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     restart: unless-stopped
 
   # Topic initialization — runs once, exits cleanly after creating all topics.
@@ -167,6 +172,10 @@ services:
         rpk topic create earthquakes.dead-letter --partitions 3 --replicas 1 --topic-config retention.ms=2592000000 --topic-config compression.type=zstd --topic-config cleanup.policy=delete --topic-config min.insync.replicas=1 || true
         echo '==> All topics created successfully'
         rpk topic list
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     restart: "no"
 
   # ═══════════════════════════════════════════════════════════════
@@ -208,7 +217,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 2g
     restart: unless-stopped
 
   # ═══════════════════════════════════════════════════════════════
@@ -227,9 +236,11 @@ services:
     volumes:
       - redis-data:/data
       - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    command: >
+      sh -c 'redis-server /usr/local/etc/redis/redis.conf
+        $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}'
     environment:
-      # Redis password injected via redis.conf requirepass directive.
+      # REDIS_PASSWORD is passed to redis-server via the command: block above.
       # The exporter reads REDIS_PASSWORD separately.
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
@@ -317,9 +328,9 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/earthquake_overview.json
-      GF_INSTALL_PLUGINS: >-
-        grafana-worldmap-panel,
-        grafana-piechart-panel
+      # GF_INSTALL_PLUGINS: not set — grafana-worldmap-panel was removed from the
+      # plugin registry; grafana-piechart-panel was merged into Grafana core in v8.
+      # All panel types in provisioned dashboards use built-in Grafana 11 types.
       # Unified alerting (Grafana 8+)
       GF_ALERTING_ENABLED: "false"
       GF_UNIFIED_ALERTING_ENABLED: "true"
@@ -360,7 +371,7 @@ services:
       SCHEMA_REGISTRY_URL: "http://redpanda:8081"
       KAFKA_TOPIC_RAW: "earthquakes.raw"
       KAFKA_TOPIC_DEAD_LETTER: "earthquakes.dead-letter"
-      REDIS_URL: "redis://redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-}@redis:6379"
       METRICS_PORT: "9091"
       RUST_LOG: "info"
     depends_on:
@@ -397,7 +408,7 @@ services:
       KAFKA_TOPIC_RAW: "earthquakes.raw"
       KAFKA_CONSUMER_GROUP: "seismosis-storage"
       DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
-      METRICS_PORT: "9090"
+      METRICS_PORT: "9095"
       RUST_LOG: "info"
     depends_on:
       postgres:
@@ -409,7 +420,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "wget --quiet --tries=1 --spider http://localhost:9090/metrics || exit 1"
+        - "wget --quiet --tries=1 --spider http://localhost:9095/metrics || exit 1"
       interval: 20s
       timeout: 5s
       retries: 5
@@ -436,7 +447,7 @@ services:
       KAFKA_GROUP_ID: "seismosis-analysis-group"
       SCHEMA_REGISTRY_URL: "http://redpanda:8081"
       DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
-      REDIS_URL: "redis://redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-}@redis:6379"
       METRICS_PORT: "9092"
       DB_POOL_MIN: "2"
       DB_POOL_MAX: "10"
@@ -520,7 +531,7 @@ services:
       - "8000:8000"   # REST API + /metrics + /docs
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
-      REDIS_URL: "redis://redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-}@redis:6379"
       HTTP_PORT: "8000"
       RUST_LOG: "info"
     depends_on:
@@ -630,6 +641,7 @@ services:
         postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}?sslmode=disable
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yaml
     volumes:
       - ./config/postgres/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
     depends_on:
