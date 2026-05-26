@@ -18,7 +18,7 @@ Table contract
 --------------
   seismology.historical_events  — target event table
   seismology.ingest_checkpoints — checkpoint tracking table
-    columns: job_name TEXT PK, last_event_time TIMESTAMPTZ, total_events BIGINT
+    columns: job_name TEXT PK, last_event_time TIMESTAMPTZ, events_ingested BIGINT
 """
 from __future__ import annotations
 
@@ -61,11 +61,12 @@ WHERE job_name = 'usgs_turkey'
 """
 
 _CHECKPOINT_UPSERT = """
-INSERT INTO seismology.ingest_checkpoints (job_name, last_event_time, total_events)
+INSERT INTO seismology.ingest_checkpoints (job_name, last_event_time, events_ingested)
 VALUES ('usgs_turkey', $1, $2)
 ON CONFLICT (job_name) DO UPDATE SET
-    last_event_time = EXCLUDED.last_event_time,
-    total_events    = EXCLUDED.total_events
+    last_event_time  = EXCLUDED.last_event_time,
+    events_ingested  = EXCLUDED.events_ingested,
+    updated_at       = NOW()
 """
 
 _BATCH_SIZE = 1000
