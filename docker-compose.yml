@@ -376,6 +376,10 @@ services:
       REDIS_URL: "redis://:${REDIS_PASSWORD:-}@redis:6379"
       METRICS_PORT: "9091"
       RUST_LOG: "info"
+      FDSN_GFZ_ENABLED: "${FDSN_GFZ_ENABLED:-false}"
+      FDSN_GFZ_BASE_URL: "${FDSN_GFZ_BASE_URL:-https://geofon.gfz-potsdam.de}"
+      FDSN_INGV_ENABLED: "${FDSN_INGV_ENABLED:-false}"
+      FDSN_INGV_BASE_URL: "${FDSN_INGV_BASE_URL:-https://webservices.ingv.it}"
     depends_on:
       redpanda:
         condition: service_healthy
