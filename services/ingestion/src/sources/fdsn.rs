@@ -74,11 +74,17 @@ struct Feature {
 #[derive(Deserialize)]
 struct Properties {
     /// Network-local event code — used to build the canonical `source_id`.
+    /// Present in USGS/GFZ-style responses.
     code: Option<String>,
+    /// Integer event identifier used by INGV instead of `code`.
+    #[serde(rename = "eventId")]
+    event_id: Option<i64>,
     /// Network identifier (e.g. "GFZ", "IV"). May differ from the configured
     /// network code; we use the configured code for `source_id` for stability.
     net: Option<String>,
-    /// Unix epoch milliseconds (UTC).
+    /// Event time: Unix epoch milliseconds (USGS/GFZ) **or** ISO 8601 string (INGV).
+    /// The custom deserialiser normalises both to milliseconds since epoch.
+    #[serde(deserialize_with = "deserialise_event_time", default)]
     time: Option<i64>,
     mag: Option<f64>,
     #[serde(rename = "magType")]
@@ -86,6 +92,22 @@ struct Properties {
     place: Option<String>,
     /// Comma-separated authoritative IDs — stored in raw payload for traceability.
     ids: Option<String>,
+}
+
+/// Deserialises an FDSN event timestamp that may be either:
+/// - An integer (Unix epoch **milliseconds**) — USGS/GFZ style
+/// - An ISO 8601 string without timezone — INGV style (`"2026-05-26T10:09:07.560000"`)
+fn deserialise_event_time<'de, D>(de: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v: Option<serde_json::Value> = Option::deserialize(de)?;
+    Ok(match v {
+        None => None,
+        Some(serde_json::Value::Number(n)) => n.as_i64(),
+        Some(serde_json::Value::String(s)) => parse_fdsn_time(&s),
+        _ => None,
+    })
 }
 
 #[derive(Deserialize)]
@@ -365,19 +387,21 @@ fn parse_feature(
 ) -> Result<RawEarthquakeEvent, ParseError> {
     let props = &feature.properties;
 
-    // The `code` property is the network-local event identifier and is
-    // required to construct a stable `source_id`.
-    let event_code = props
+    // The `code` property is the canonical network-local event identifier.
+    // INGV omits `code` and uses the integer `eventId` field instead.
+    let event_code: String = props
         .code
         .as_deref()
         .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .or_else(|| props.event_id.map(|id| id.to_string()))
         .ok_or_else(|| ParseError::MissingField {
-            field: "properties.code",
+            field: "properties.code/eventId",
             src: source_name,
             event_id: "(unknown)".into(),
         })?;
 
-    let event_id = event_code.to_owned();
+    let event_id = event_code.clone();
 
     let magnitude = props.mag.ok_or_else(|| ParseError::MissingField {
         field: "mag",
@@ -619,6 +643,7 @@ mod tests {
         Feature {
             properties: Properties {
                 code: code.map(str::to_owned),
+                event_id: None,
                 net: Some("GFZ".into()),
                 time,
                 mag: Some(mag.unwrap_or(3.0)),
@@ -759,6 +784,60 @@ mod tests {
         assert_eq!(payload["code"], serde_json::json!("gfz2024abcd"));
         assert_eq!(payload["mag"], serde_json::json!(3.5));
         assert_eq!(payload["time"], serde_json::json!(1_704_067_200_000_i64));
+    }
+
+    // ── INGV GeoJSON format tests ──────────────────────────────────────────────
+
+    fn ingv_feature_json() -> &'static str {
+        r#"{
+            "type":"Feature",
+            "properties":{
+                "eventId":46043752,
+                "time":"2026-05-26T10:09:07.560000",
+                "author":"SURVEY-INGV",
+                "magType":"ML",
+                "mag":2.9,
+                "magAuthor":"--",
+                "type":"earthquake",
+                "place":"Costa Calabra sud-orientale (Reggio di Calabria)"
+            },
+            "geometry":{"type":"Point","coordinates":[15.7927,37.7717,40.5]}
+        }"#
+    }
+
+    #[test]
+    fn parse_feature_ingv_geojson_format() {
+        let feature: Feature = serde_json::from_str(ingv_feature_json()).unwrap();
+        let event = parse_feature(feature, "INGV", "ingv", 0, "0.3.0").unwrap();
+        assert_eq!(event.source_id, "ingv:46043752");
+        assert_eq!(event.source_network, "INGV");
+        assert!((event.magnitude - 2.9).abs() < 1e-9);
+        assert_eq!(event.magnitude_type, "ML");
+        assert!((event.latitude - 37.7717).abs() < 1e-9);
+        assert!((event.longitude - 15.7927).abs() < 1e-9);
+        assert_eq!(event.depth_km, Some(40.5));
+        assert_eq!(
+            event.region_name.as_deref(),
+            Some("Costa Calabra sud-orientale (Reggio di Calabria)")
+        );
+        // 2026-05-26T10:09:07.560 UTC
+        assert_eq!(event.event_time_ms, 1_748_254_147_560);
+    }
+
+    #[test]
+    fn parse_feature_ingv_missing_code_uses_event_id() {
+        let feature: Feature = serde_json::from_str(ingv_feature_json()).unwrap();
+        // code is None, event_id is 46043752 — should succeed
+        assert!(feature.properties.code.is_none());
+        assert_eq!(feature.properties.event_id, Some(46043752));
+        let event = parse_feature(feature, "INGV", "ingv", 0, "0.3.0").unwrap();
+        assert_eq!(event.source_id, "ingv:46043752");
+    }
+
+    #[test]
+    fn parse_feature_ingv_string_time_parsed() {
+        let feature: Feature = serde_json::from_str(ingv_feature_json()).unwrap();
+        assert_eq!(feature.properties.time, Some(1_748_254_147_560));
     }
 
     // ── Text-format parser tests ───────────────────────────────────────────────
