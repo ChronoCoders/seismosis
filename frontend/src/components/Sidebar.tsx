@@ -88,15 +88,35 @@ export function Sidebar({ activePage, onNavigate, expanded, onToggle, wsStatus, 
       className={`${w} shrink-0 flex flex-col h-screen bg-[#0c0e16] border-r border-[#232736] transition-[width] duration-200 ease-in-out overflow-hidden z-20`}
     >
       {/* Logo + toggle */}
-      <div className="flex items-center h-12 border-b border-[#232736] shrink-0 px-3 gap-3">
-        {expanded && (
-          <span className="text-xs font-bold tracking-[0.2em] text-[#e2e4ed] uppercase whitespace-nowrap">
-            Seismosis
-          </span>
+      <div className="flex items-center h-12 border-b border-[#232736] shrink-0 px-3 gap-2">
+        {expanded ? (
+          <img
+            src="/logo.svg"
+            alt="seismosio"
+            className="h-7 w-auto object-contain flex-1 min-w-0"
+            draggable={false}
+          />
+        ) : (
+          <svg
+            width="28"
+            height="28"
+            viewBox="100 165 140 90"
+            fill="none"
+            className="shrink-0 mx-auto"
+            aria-label="seismosio"
+          >
+            <polyline
+              points="100,210 140,210 158,210 168,185 178,235 188,172 198,248 208,205 218,210 240,210"
+              stroke="#e05c2c"
+              strokeWidth="5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         )}
         <button
           onClick={onToggle}
-          className="ml-auto p-1.5 rounded text-[#575c6e] hover:text-[#e2e4ed] hover:bg-[#1a1e2b] transition-colors"
+          className="shrink-0 p-1.5 rounded text-[#575c6e] hover:text-[#e2e4ed] hover:bg-[#1a1e2b] transition-colors"
           title={expanded ? 'Küçült' : 'Genişlet'}
         >
           {expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
