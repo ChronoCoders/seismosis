@@ -35,7 +35,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::Deserialize;
 use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use tracing::{debug, warn};
@@ -109,6 +109,9 @@ pub struct FdsnSource {
     client: reqwest::Client,
     config: Arc<Config>,
     metrics: Arc<Metrics>,
+    /// Some FDSN implementations (e.g. GFZ/GEOFON) do not support
+    /// `format=geojson` and require `format=text` (pipe-delimited) instead.
+    use_text_format: bool,
 }
 
 impl FdsnSource {
@@ -126,6 +129,18 @@ impl FdsnSource {
         config: Arc<Config>,
         metrics: Arc<Metrics>,
     ) -> Self {
+        Self::with_format(source_name, network_prefix, base_url, client, config, metrics, false)
+    }
+
+    pub fn with_format(
+        source_name: &'static str,
+        network_prefix: &'static str,
+        base_url: impl Into<String>,
+        client: reqwest::Client,
+        config: Arc<Config>,
+        metrics: Arc<Metrics>,
+        use_text_format: bool,
+    ) -> Self {
         Self {
             source_name,
             network_prefix,
@@ -133,6 +148,7 @@ impl FdsnSource {
             client,
             config,
             metrics,
+            use_text_format,
         }
     }
 
@@ -161,6 +177,7 @@ impl FdsnSource {
             client,
             config,
             metrics,
+            use_text_format: false,
         }
     }
 
@@ -169,15 +186,17 @@ impl FdsnSource {
         since: DateTime<Utc>,
     ) -> Result<Vec<RawEarthquakeEvent>, IngestError> {
         let now = Utc::now();
+        let format_param = if self.use_text_format { "text" } else { "geojson" };
         let url = format!(
             "{}/fdsnws/event/1/query\
-             ?format=geojson\
+             ?format={}\
              &starttime={}\
              &endtime={}\
              &minmagnitude={}\
              &orderby=time-asc\
              &limit=1000",
             self.base_url,
+            format_param,
             since.format("%Y-%m-%dT%H:%M:%S"),
             now.format("%Y-%m-%dT%H:%M:%S"),
             self.config.min_magnitude,
@@ -226,6 +245,51 @@ impl FdsnSource {
             return Ok(vec![]);
         }
 
+        let ingested_at_ms = Utc::now().timestamp_millis();
+
+        if self.use_text_format {
+            let text = std::str::from_utf8(&body).map_err(|_| IngestError::JsonParse {
+                src: self.source_name,
+                event_id: "(collection)".into(),
+                inner: serde_json::from_str::<serde_json::Value>("").unwrap_err(),
+            })?;
+            let api_count = text.lines().filter(|l| !l.starts_with('#')).count();
+            let mut events = Vec::with_capacity(api_count);
+            for line in text.lines() {
+                if line.starts_with('#') || line.trim().is_empty() {
+                    continue;
+                }
+                match parse_text_row(
+                    line,
+                    self.source_name,
+                    self.network_prefix,
+                    ingested_at_ms,
+                    &self.config.pipeline_version,
+                ) {
+                    Ok(event) => events.push(event),
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            source = self.source_name,
+                            "Skipping unparseable text row"
+                        );
+                        self.metrics
+                            .events_rejected_total
+                            .with_label_values(&[self.source_name, "parse_error"])
+                            .inc();
+                    }
+                }
+            }
+            if api_count >= 1000 {
+                warn!(
+                    source = self.source_name,
+                    count = api_count,
+                    "API response hit the 1000-event limit — older events may be truncated."
+                );
+            }
+            return Ok(events);
+        }
+
         let collection: FeatureCollection =
             serde_json::from_slice(&body).map_err(|e| IngestError::JsonParse {
                 src: self.source_name,
@@ -233,7 +297,6 @@ impl FdsnSource {
                 inner: e,
             })?;
 
-        let ingested_at_ms = Utc::now().timestamp_millis();
         let api_count = collection.features.len();
         let mut events = Vec::with_capacity(api_count);
 
@@ -387,6 +450,149 @@ fn parse_feature(
         ingested_at_ms,
         pipeline_version: pipeline_version.to_owned(),
     })
+}
+
+// ── Text-format parser ─────────────────────────────────────────────────────────
+
+/// Parses one data line from an FDSN `format=text` response.
+///
+/// Column layout (0-indexed, pipe-delimited):
+/// ```text
+/// 0:EventID | 1:Time | 2:Latitude | 3:Longitude | 4:Depth/km |
+/// 5:Author  | 6:Catalog | 7:Contributor | 8:ContributorID |
+/// 9:MagType | 10:Magnitude | 11:MagAuthor | 12:EventLocationName | 13:EventType
+/// ```
+fn parse_text_row(
+    line: &str,
+    source_name: &'static str,
+    network_prefix: &str,
+    ingested_at_ms: i64,
+    pipeline_version: &str,
+) -> Result<RawEarthquakeEvent, ParseError> {
+    let cols: Vec<&str> = line.split('|').collect();
+
+    if cols.len() < 11 {
+        return Err(ParseError::InvalidField {
+            field: "text row",
+            src: source_name,
+            event_id: "(unknown)".into(),
+            detail: format!(
+                "expected at least 11 pipe-delimited columns, got {}",
+                cols.len()
+            ),
+        });
+    }
+
+    let event_code = cols[0].trim();
+    if event_code.is_empty() {
+        return Err(ParseError::MissingField {
+            field: "EventID",
+            src: source_name,
+            event_id: "(unknown)".into(),
+        });
+    }
+    let event_id = event_code.to_owned();
+
+    let time_str = cols[1].trim();
+    let event_time_ms =
+        parse_fdsn_time(time_str).ok_or_else(|| ParseError::InvalidField {
+            field: "Time",
+            src: source_name,
+            event_id: event_id.clone(),
+            detail: format!("cannot parse timestamp '{time_str}'"),
+        })?;
+
+    let latitude: f64 = cols[2].trim().parse().map_err(|_| ParseError::InvalidField {
+        field: "Latitude",
+        src: source_name,
+        event_id: event_id.clone(),
+        detail: format!("cannot parse latitude '{}'", cols[2].trim()),
+    })?;
+
+    let longitude: f64 = cols[3].trim().parse().map_err(|_| ParseError::InvalidField {
+        field: "Longitude",
+        src: source_name,
+        event_id: event_id.clone(),
+        detail: format!("cannot parse longitude '{}'", cols[3].trim()),
+    })?;
+
+    let depth_km: Option<f64> = cols[4].trim().parse().ok().filter(|d: &f64| d.is_finite());
+
+    let mag_type_raw = cols.get(9).copied().unwrap_or("").trim();
+    let magnitude_type =
+        normalise_mag_type(if mag_type_raw.is_empty() { "UNKNOWN" } else { mag_type_raw });
+
+    let magnitude: f64 = cols[10].trim().parse().map_err(|_| ParseError::InvalidField {
+        field: "Magnitude",
+        src: source_name,
+        event_id: event_id.clone(),
+        detail: format!("cannot parse magnitude '{}'", cols[10].trim()),
+    })?;
+    if !magnitude.is_finite() {
+        return Err(ParseError::InvalidField {
+            field: "Magnitude",
+            src: source_name,
+            event_id: event_id.clone(),
+            detail: format!("{magnitude} is not a finite magnitude"),
+        });
+    }
+
+    let region_name = cols
+        .get(12)
+        .copied()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+
+    validate_coordinates(latitude, longitude, source_name, &event_id)?;
+
+    let source_id = format!("{}:{}", network_prefix, event_code);
+
+    let raw_payload = serde_json::json!({
+        "code": event_code,
+        "time": event_time_ms,
+        "lat": latitude,
+        "lon": longitude,
+        "depth_km": depth_km,
+        "mag": magnitude,
+        "magType": magnitude_type,
+        "place": region_name,
+    })
+    .to_string();
+
+    Ok(RawEarthquakeEvent {
+        source_id,
+        source_network: source_name.to_owned(),
+        event_time_ms,
+        latitude,
+        longitude,
+        depth_km,
+        magnitude,
+        magnitude_type,
+        region_name,
+        quality_indicator: "C".to_owned(),
+        raw_payload,
+        ingested_at_ms,
+        pipeline_version: pipeline_version.to_owned(),
+    })
+}
+
+/// Parses an FDSN text-format timestamp to Unix epoch milliseconds.
+///
+/// FDSN timestamps are ISO 8601 without a timezone suffix (implicitly UTC),
+/// with optional sub-second precision: `2026-05-27T01:23:41.95`.
+fn parse_fdsn_time(s: &str) -> Option<i64> {
+    // Try RFC 3339 first (includes timezone offset).
+    if let Ok(dt) = s.parse::<DateTime<Utc>>() {
+        return Some(dt.timestamp_millis());
+    }
+    // Fall back to naive formats (no timezone — assume UTC).
+    for fmt in &["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S"] {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return Some(ndt.and_utc().timestamp_millis());
+        }
+    }
+    None
 }
 
 // ── Unit tests ─────────────────────────────────────────────────────────────────
@@ -553,5 +759,60 @@ mod tests {
         assert_eq!(payload["code"], serde_json::json!("gfz2024abcd"));
         assert_eq!(payload["mag"], serde_json::json!(3.5));
         assert_eq!(payload["time"], serde_json::json!(1_704_067_200_000_i64));
+    }
+
+    // ── Text-format parser tests ───────────────────────────────────────────────
+
+    #[test]
+    fn parse_fdsn_time_naive_with_fractional() {
+        let ms = parse_fdsn_time("2026-05-27T01:23:41.95").unwrap();
+        // 2026-05-27T01:23:41 UTC = 1_748_308_621_000 ms; +0.95 s = 1_748_308_621_950 ms
+        assert_eq!(ms, 1_748_308_621_950);
+    }
+
+    #[test]
+    fn parse_fdsn_time_naive_no_fractional() {
+        let ms = parse_fdsn_time("2026-05-27T01:23:41").unwrap();
+        assert_eq!(ms, 1_748_308_621_000);
+    }
+
+    #[test]
+    fn parse_fdsn_time_invalid_returns_none() {
+        assert!(parse_fdsn_time("not-a-date").is_none());
+    }
+
+    fn sample_text_row() -> &'static str {
+        "gfz2026kgwf|2026-05-27T01:23:41.95|-21.407|-179.372|619.3|||GFZ|gfz2026kgwf|M|4.64||Fiji Islands Region|earthquake"
+    }
+
+    #[test]
+    fn parse_text_row_valid() {
+        let event = parse_text_row(sample_text_row(), "GFZ", "gfz", 0, "0.3.0").unwrap();
+        assert_eq!(event.source_id, "gfz:gfz2026kgwf");
+        assert_eq!(event.source_network, "GFZ");
+        assert!((event.magnitude - 4.64).abs() < 1e-9);
+        assert_eq!(event.magnitude_type, "M");
+        assert!((event.latitude - (-21.407)).abs() < 1e-9);
+        assert!((event.longitude - (-179.372)).abs() < 1e-9);
+        assert_eq!(event.depth_km, Some(619.3));
+        assert_eq!(event.region_name.as_deref(), Some("Fiji Islands Region"));
+        assert_eq!(event.quality_indicator, "C");
+    }
+
+    #[test]
+    fn parse_text_row_too_few_columns_fails() {
+        assert!(parse_text_row("gfz2026kgwf|2026-05-27T01:23:41", "GFZ", "gfz", 0, "0.3.0").is_err());
+    }
+
+    #[test]
+    fn parse_text_row_empty_event_id_fails() {
+        let row = "|2026-05-27T01:23:41.95|-21.407|-179.372|619.3|||GFZ|gfz2026kgwf|M|4.64||Fiji Islands Region|earthquake";
+        assert!(parse_text_row(row, "GFZ", "gfz", 0, "0.3.0").is_err());
+    }
+
+    #[test]
+    fn parse_text_row_bad_magnitude_fails() {
+        let row = "gfz2026kgwf|2026-05-27T01:23:41.95|-21.407|-179.372|619.3|||GFZ|gfz2026kgwf|M|notanumber||Fiji Islands Region|earthquake";
+        assert!(parse_text_row(row, "GFZ", "gfz", 0, "0.3.0").is_err());
     }
 }

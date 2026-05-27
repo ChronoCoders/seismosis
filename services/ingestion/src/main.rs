@@ -194,7 +194,8 @@ async fn main() -> anyhow::Result<()> {
         // Fallback: individual enable flags (backward-compatible).
         if std::env::var("FDSN_GFZ_ENABLED").as_deref() == Ok("true") {
             info!("FDSN GFZ source enabled");
-            sources.push(Box::new(FdsnSource::new(
+            // GFZ/GEOFON does not support format=geojson; use pipe-delimited text.
+            sources.push(Box::new(FdsnSource::with_format(
                 "GFZ",
                 "gfz",
                 std::env::var("FDSN_GFZ_BASE_URL")
@@ -202,6 +203,7 @@ async fn main() -> anyhow::Result<()> {
                 http_client.clone(),
                 Arc::clone(&config),
                 Arc::clone(&metrics),
+                true,
             )));
         }
 
