@@ -13,6 +13,8 @@ const SOURCES = [
     color: '#60a5fa',
     bg: 'bg-blue-950/30',
     border: 'border-blue-700/40',
+    fdsn: false,
+    stalenessMs: 3_600_000,
   },
   {
     id: 'EMSC',
@@ -22,6 +24,8 @@ const SOURCES = [
     color: '#c084fc',
     bg: 'bg-purple-950/30',
     border: 'border-purple-700/40',
+    fdsn: false,
+    stalenessMs: 3_600_000,
   },
   {
     id: 'AFAD',
@@ -31,6 +35,30 @@ const SOURCES = [
     color: '#2dd4bf',
     bg: 'bg-teal-950/30',
     border: 'border-teal-700/40',
+    fdsn: false,
+    stalenessMs: 6 * 3_600_000,
+  },
+  {
+    id: 'GFZ',
+    name: 'GFZ',
+    full: 'GFZ Potsdam — German Research Centre for Geosciences',
+    description: 'Alman ulusal sismik ağı; GEOFON istasyonları üzerinden küresel izleme sağlar',
+    color: '#fb923c',
+    bg: 'bg-orange-950/30',
+    border: 'border-orange-700/40',
+    fdsn: true,
+    stalenessMs: 3_600_000,
+  },
+  {
+    id: 'INGV',
+    name: 'INGV',
+    full: 'Istituto Nazionale di Geofisica e Vulcanologia',
+    description: 'İtalya ulusal jeofizik ve volkanoloji enstitüsü; Akdeniz havzası odaklı',
+    color: '#f43f5e',
+    bg: 'bg-rose-950/30',
+    border: 'border-rose-700/40',
+    fdsn: true,
+    stalenessMs: 3_600_000,
   },
 ];
 
@@ -71,11 +99,9 @@ export function DataSourcesPage({ events }: Props) {
     return map;
   }, [events]);
 
-  function healthStatus(stats: SourceStats | undefined, srcId: string): 'healthy' | 'stale' | 'unknown' {
+  function healthStatus(stats: SourceStats | undefined, stalenessMs: number): 'healthy' | 'stale' | 'unknown' {
     if (!stats || stats.lastEventMs === null) return 'unknown';
-    // AFAD has ~2.5hr publication delay; use a 6h staleness threshold for it
-    const threshold = srcId === 'AFAD' ? 6 * 3_600_000 : 3_600_000;
-    return Date.now() - stats.lastEventMs < threshold ? 'healthy' : 'stale';
+    return Date.now() - stats.lastEventMs < stalenessMs ? 'healthy' : 'stale';
   }
 
   return (
@@ -93,7 +119,7 @@ export function DataSourcesPage({ events }: Props) {
         <div className="max-w-3xl space-y-4">
           {SOURCES.map((src) => {
             const stats = statsMap[src.id];
-            const health = healthStatus(stats, src.id);
+            const health = healthStatus(stats, src.stalenessMs);
 
             return (
               <div key={src.id} className={`rounded-lg border ${src.border} ${src.bg} p-5`}>
@@ -113,6 +139,11 @@ export function DataSourcesPage({ events }: Props) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-sm font-bold" style={{ color: src.color }}>{src.name}</span>
+                      {src.fdsn && (
+                        <span className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded bg-[#1a1e2b] text-[#575c6e] border border-[#232736]">
+                          FDSN
+                        </span>
+                      )}
                       <span className="text-xs text-[#8b90a2]">{src.full}</span>
                       <span className={`ml-auto text-[9px] font-bold tracking-widest px-2 py-0.5 rounded ${
                         health === 'healthy'
@@ -121,7 +152,7 @@ export function DataSourcesPage({ events }: Props) {
                           ? 'bg-yellow-900/50 text-yellow-400'
                           : 'bg-[#1a1e2b] text-[#575c6e]'
                       }`}>
-                        {health === 'healthy' ? 'SAĞLIKLI' : health === 'stale' ? 'GECİKMELİ' : 'BİLİNMİYOR'}
+                        {health === 'healthy' ? 'SAĞLIKLI' : health === 'stale' ? 'GECİKMELİ' : 'DEVRE DIŞI'}
                       </span>
                     </div>
                     <p className="text-[10px] text-[#575c6e] mt-1">{src.description}</p>
@@ -153,12 +184,19 @@ export function DataSourcesPage({ events }: Props) {
           })}
 
           {/* Info note */}
-          <div className="rounded border border-[#232736] bg-[#12151d] px-4 py-3">
+          <div className="rounded border border-[#232736] bg-[#12151d] px-4 py-3 space-y-1.5">
             <p className="text-[10px] text-[#575c6e] leading-relaxed">
               <span className="font-semibold text-[#8b90a2]">Not:</span>{' '}
               İstatistikler, mevcut oturumdaki bellek içi olay listesinden hesaplanmaktadır.
               Ingestion servisinin Prometheus metrikleri için{' '}
               <span className="font-mono text-[#4a90e2]">:9091/metrics</span> adresini kullanın.
+            </p>
+            <p className="text-[10px] text-[#575c6e] leading-relaxed">
+              <span className="font-semibold text-[#8b90a2]">FDSN kaynakları:</span>{' '}
+              GFZ ve INGV, ingestion servisinde{' '}
+              <span className="font-mono text-[#4a90e2]">FDSN_GFZ_ENABLED=true</span> /{' '}
+              <span className="font-mono text-[#4a90e2]">FDSN_INGV_ENABLED=true</span>{' '}
+              ortam değişkenleriyle etkinleştirilir. Etkinleştirilmediğinde <span className="text-[#8b90a2]">DEVRE DIŞI</span> görünür.
             </p>
           </div>
         </div>
