@@ -23,9 +23,14 @@ class Metrics:
             "ETAS computation errors",
             registry=registry,
         )
-        self.gr_cells_computed: Counter = Counter(
-            "seismosis_forecast_gr_cells_computed_total",
-            "Gutenberg-Richter grid cells written to the database",
+        self.etas_duration: Histogram = Histogram(
+            "seismosis_forecast_etas_duration_seconds",
+            "Wall-clock time to compute a single ETAS forecast in seconds",
+            registry=registry,
+        )
+        self.gr_recomputes: Counter = Counter(
+            "seismosis_forecast_gr_recomputes_total",
+            "Gutenberg-Richter analyses (global + grid cells) written to the database",
             registry=registry,
         )
         self.gr_errors: Counter = Counter(
@@ -33,14 +38,19 @@ class Metrics:
             "Gutenberg-Richter computation errors",
             registry=registry,
         )
-        self.classifier_events: Counter = Counter(
-            "seismosis_forecast_classifier_events_total",
-            "Seismic events classified",
+        self.classifier_inferences: Counter = Counter(
+            "seismosis_forecast_classifier_inferences_total",
+            "Seismic events classified by the seismicity classifier",
             registry=registry,
         )
         self.classifier_errors: Counter = Counter(
             "seismosis_forecast_classifier_errors_total",
             "Seismicity classifier errors",
+            registry=registry,
+        )
+        self.model_confidence: Gauge = Gauge(
+            "seismosis_forecast_model_confidence",
+            "Latest cross-validation macro-F1 score of the active seismicity classifier",
             registry=registry,
         )
         self.cycle_duration: Histogram = Histogram(

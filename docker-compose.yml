@@ -636,7 +636,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 2g
     restart: unless-stopped
 
   seismosis-historical-ingest:

@@ -251,7 +251,7 @@ async def run_gr_analysis(
                     model_version="gr-aki-utsu-maxcurv-v1",
                     fmd_json=json.dumps(cell_result.fmd),
                 )
-                metrics.gr_cells_computed.inc()
+                metrics.gr_recomputes.inc()
 
             except Exception as exc:
                 metrics.gr_errors.inc()
@@ -312,17 +312,18 @@ async def run_etas_forecasts(
                 catalog_lats = [e.latitude for e in nearby]
                 catalog_lons = [e.longitude for e in nearby]
 
-                result = etas_forecast(
-                    mainshock_time=mainshock.event_time,
-                    mainshock_mag=mainshock.magnitude,
-                    catalog_times=catalog_times,
-                    catalog_mags=catalog_mags,
-                    horizon_days=config.horizon_days,
-                    catalog_lats=catalog_lats,
-                    catalog_lons=catalog_lons,
-                    mainshock_lat=mainshock.latitude,
-                    mainshock_lon=mainshock.longitude,
-                )
+                with metrics.etas_duration.time():
+                    result = etas_forecast(
+                        mainshock_time=mainshock.event_time,
+                        mainshock_mag=mainshock.magnitude,
+                        catalog_times=catalog_times,
+                        catalog_mags=catalog_mags,
+                        horizon_days=config.horizon_days,
+                        catalog_lats=catalog_lats,
+                        catalog_lons=catalog_lons,
+                        mainshock_lat=mainshock.latitude,
+                        mainshock_lon=mainshock.longitude,
+                    )
 
                 params_snapshot: dict[str, float] = {
                     "mu": result.params.mu,
@@ -447,10 +448,13 @@ async def run_classifier(
                         artifact_path="",
                         is_active=True,
                     )
+                    macro_f1_val: float | None = train_metrics.get("macro_f1")
+                    if macro_f1_val is not None:
+                        metrics.model_confidence.set(macro_f1_val)
                     log.info(
                         "classifier.trained",
                         n_train=n_train_val,
-                        macro_f1=train_metrics.get("macro_f1"),
+                        macro_f1=macro_f1_val,
                     )
             else:
                 log.info(
@@ -535,7 +539,7 @@ async def run_classifier(
                 for r in results
             ]
             await db.update_event_classifications(classifications)
-            metrics.classifier_events.inc(len(results))
+            metrics.classifier_inferences.inc(len(results))
             log.info("classifier.classified", count=len(results))
 
         except Exception as exc:
