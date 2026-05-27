@@ -142,7 +142,7 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
     <div className="flex flex-1 min-h-0 overflow-hidden">
 
       <div className="flex flex-col flex-[3] min-h-0 border-r border-border">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0 bg-surface">
+        <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0 bg-surface">
           <div className="flex items-center gap-2">
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${wsCfg.dot}`} />
             <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
@@ -246,7 +246,7 @@ export default function RealtimeTab({ events, wsStatus }: Props) {
       </div>
 
       <div className="hidden md:flex w-[300px] shrink-0 flex-col min-h-0 bg-surface">
-        <div className="px-4 py-2.5 border-b border-border shrink-0">
+        <div className="flex items-center px-4 h-12 border-b border-border shrink-0">
           <h2 className="text-[9px] font-semibold uppercase tracking-widest text-text-muted">
             Kalite & Büyüklük
           </h2>
