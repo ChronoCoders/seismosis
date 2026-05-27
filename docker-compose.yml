@@ -654,12 +654,7 @@ services:
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-seismosis}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-seismosis}"
       METRICS_PORT: "9097"
-      COMCAT_START_DATE: "2016-01-01"
-      COMCAT_MIN_MAGNITUDE: "1.5"
-      COMCAT_MIN_LAT: "33.0"
-      COMCAT_MAX_LAT: "45.0"
-      COMCAT_MIN_LON: "22.0"
-      COMCAT_MAX_LON: "48.0"
+      START_DATE: "2016-01-01"
       LOG_LEVEL: "info"
       PYTHONUNBUFFERED: "1"
     depends_on:
@@ -677,7 +672,7 @@ services:
       resources:
         limits:
           memory: 256m
-    restart: unless-stopped
+    restart: "no"
 
   # ═══════════════════════════════════════════════════════════════
   # EXPORTERS
