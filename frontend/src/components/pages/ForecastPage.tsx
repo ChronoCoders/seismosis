@@ -291,7 +291,7 @@ export function ForecastPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-[#232736] bg-[#12151d] shrink-0">
+      <div className="flex items-center justify-between px-5 h-12 border-b border-[#232736] bg-[#12151d] shrink-0">
         <div className="flex items-center gap-2">
           <LineChart size={15} className="text-[#4a90e2]" />
           <div>

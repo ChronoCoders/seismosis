@@ -291,7 +291,7 @@ export default function CompareTab() {
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
       {/* Controls */}
-      <div className="flex items-center gap-6 px-5 py-3 border-b border-border bg-surface shrink-0 flex-wrap">
+      <div className="flex items-center gap-6 px-5 h-12 border-b border-border bg-surface shrink-0">
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-accent/70 shrink-0" />
           <PeriodSelector

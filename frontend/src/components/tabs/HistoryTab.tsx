@@ -275,7 +275,7 @@ export default function HistoryTab() {
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
       {/* Controls bar */}
-      <div className="flex items-center gap-4 px-5 py-3 border-b border-border bg-surface shrink-0 flex-wrap">
+      <div className="flex items-center gap-4 px-5 h-12 border-b border-border bg-surface shrink-0">
         {/* Period selector */}
         <div className="flex items-center gap-1 rounded border border-border bg-bg overflow-hidden">
           {PERIODS.map((p) => (

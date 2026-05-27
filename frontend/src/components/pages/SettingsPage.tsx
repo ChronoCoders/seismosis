@@ -10,7 +10,7 @@ interface Props {
 export function SettingsPage({ minMagnitude, onMinMagnitude, filterTurkey, onFilterTurkey }: Props) {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      <div className="flex items-center px-5 py-3 border-b border-[#232736] bg-[#12151d] shrink-0">
+      <div className="flex items-center px-5 h-12 border-b border-[#232736] bg-[#12151d] shrink-0">
         <div>
           <h1 className="text-sm font-semibold text-[#e2e4ed]">Ayarlar</h1>
           <p className="text-[10px] text-[#575c6e] mt-0.5">Görüntüleme tercihleri</p>

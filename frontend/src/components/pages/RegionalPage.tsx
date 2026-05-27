@@ -75,7 +75,7 @@ export function RegionalPage({ events: allEvents }: Props) {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-4 px-5 py-3 border-b border-[#232736] bg-[#12151d] shrink-0 flex-wrap">
+      <div className="flex items-center gap-4 px-5 h-12 border-b border-[#232736] bg-[#12151d] shrink-0">
         <div>
           <h1 className="text-sm font-semibold text-[#e2e4ed]">Bölgesel Analiz</h1>
           <p className="text-[10px] text-[#575c6e] mt-0.5">{events.length} olay</p>

@@ -62,7 +62,7 @@ export function LiveMap({ events, bands, alerts, filterTurkey, minMagnitude, onF
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Risk banner */}
       <div
-        className="flex items-center gap-3 px-4 py-2 shrink-0 border-b border-[#232736]"
+        className="flex items-center gap-3 px-4 h-12 shrink-0 border-b border-[#232736]"
         style={{ backgroundColor: `${risk.color}18` }}
       >
         <span className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: risk.color }} />
