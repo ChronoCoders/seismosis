@@ -151,7 +151,15 @@ impl FdsnSource {
         config: Arc<Config>,
         metrics: Arc<Metrics>,
     ) -> Self {
-        Self::with_format(source_name, network_prefix, base_url, client, config, metrics, false)
+        Self::with_format(
+            source_name,
+            network_prefix,
+            base_url,
+            client,
+            config,
+            metrics,
+            false,
+        )
     }
 
     pub fn with_format(
@@ -208,7 +216,11 @@ impl FdsnSource {
         since: DateTime<Utc>,
     ) -> Result<Vec<RawEarthquakeEvent>, IngestError> {
         let now = Utc::now();
-        let format_param = if self.use_text_format { "text" } else { "geojson" };
+        let format_param = if self.use_text_format {
+            "text"
+        } else {
+            "geojson"
+        };
         let url = format!(
             "{}/fdsnws/event/1/query\
              ?format={}\
@@ -518,40 +530,51 @@ fn parse_text_row(
     let event_id = event_code.to_owned();
 
     let time_str = cols[1].trim();
-    let event_time_ms =
-        parse_fdsn_time(time_str).ok_or_else(|| ParseError::InvalidField {
-            field: "Time",
+    let event_time_ms = parse_fdsn_time(time_str).ok_or_else(|| ParseError::InvalidField {
+        field: "Time",
+        src: source_name,
+        event_id: event_id.clone(),
+        detail: format!("cannot parse timestamp '{time_str}'"),
+    })?;
+
+    let latitude: f64 = cols[2]
+        .trim()
+        .parse()
+        .map_err(|_| ParseError::InvalidField {
+            field: "Latitude",
             src: source_name,
             event_id: event_id.clone(),
-            detail: format!("cannot parse timestamp '{time_str}'"),
+            detail: format!("cannot parse latitude '{}'", cols[2].trim()),
         })?;
 
-    let latitude: f64 = cols[2].trim().parse().map_err(|_| ParseError::InvalidField {
-        field: "Latitude",
-        src: source_name,
-        event_id: event_id.clone(),
-        detail: format!("cannot parse latitude '{}'", cols[2].trim()),
-    })?;
-
-    let longitude: f64 = cols[3].trim().parse().map_err(|_| ParseError::InvalidField {
-        field: "Longitude",
-        src: source_name,
-        event_id: event_id.clone(),
-        detail: format!("cannot parse longitude '{}'", cols[3].trim()),
-    })?;
+    let longitude: f64 = cols[3]
+        .trim()
+        .parse()
+        .map_err(|_| ParseError::InvalidField {
+            field: "Longitude",
+            src: source_name,
+            event_id: event_id.clone(),
+            detail: format!("cannot parse longitude '{}'", cols[3].trim()),
+        })?;
 
     let depth_km: Option<f64> = cols[4].trim().parse().ok().filter(|d: &f64| d.is_finite());
 
     let mag_type_raw = cols.get(9).copied().unwrap_or("").trim();
-    let magnitude_type =
-        normalise_mag_type(if mag_type_raw.is_empty() { "UNKNOWN" } else { mag_type_raw });
+    let magnitude_type = normalise_mag_type(if mag_type_raw.is_empty() {
+        "UNKNOWN"
+    } else {
+        mag_type_raw
+    });
 
-    let magnitude: f64 = cols[10].trim().parse().map_err(|_| ParseError::InvalidField {
-        field: "Magnitude",
-        src: source_name,
-        event_id: event_id.clone(),
-        detail: format!("cannot parse magnitude '{}'", cols[10].trim()),
-    })?;
+    let magnitude: f64 = cols[10]
+        .trim()
+        .parse()
+        .map_err(|_| ParseError::InvalidField {
+            field: "Magnitude",
+            src: source_name,
+            event_id: event_id.clone(),
+            detail: format!("cannot parse magnitude '{}'", cols[10].trim()),
+        })?;
     if !magnitude.is_finite() {
         return Err(ParseError::InvalidField {
             field: "Magnitude",
@@ -880,7 +903,9 @@ mod tests {
 
     #[test]
     fn parse_text_row_too_few_columns_fails() {
-        assert!(parse_text_row("gfz2026kgwf|2026-05-27T01:23:41", "GFZ", "gfz", 0, "0.3.0").is_err());
+        assert!(
+            parse_text_row("gfz2026kgwf|2026-05-27T01:23:41", "GFZ", "gfz", 0, "0.3.0").is_err()
+        );
     }
 
     #[test]
