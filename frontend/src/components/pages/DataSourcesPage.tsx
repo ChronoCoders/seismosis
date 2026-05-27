@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import type { DisplayEvent } from '@/types';
+import { fetchEvents } from '@/lib/api';
 
 const SOURCES = [
   {
@@ -83,13 +84,26 @@ interface Props {
   events: DisplayEvent[];
 }
 
-export function DataSourcesPage({ events }: Props) {
+export function DataSourcesPage({ events: liveEvents }: Props) {
+  const [fetchedEvents, setFetchedEvents] = useState<DisplayEvent[]>([]);
+
+  useEffect(() => {
+    const start = new Date(Date.now() - 2 * 86_400_000).toISOString(); // 48h window
+    fetchEvents({ page_size: 1000, start_time: start })
+      .then((r) => setFetchedEvents(r.events as unknown as DisplayEvent[]))
+      .catch(() => undefined);
+  }, []);
+
+  // Use fetched dataset when available, fall back to live prop while loading
+  const allEvents = fetchedEvents.length > 0 ? fetchedEvents : liveEvents;
+
   const statsMap = useMemo(() => {
     const map: Record<string, SourceStats> = {};
     const cutoff24h = Date.now() - 86_400_000;
 
-    for (const e of events) {
-      const src = e.source_network.toUpperCase();
+    for (const e of allEvents) {
+      const src = (e.source_network ?? '').toUpperCase();
+      if (!src) continue;
       if (!map[src]) map[src] = { count: 0, lastEventMs: null, count24h: 0 };
       const t = new Date(e.event_time).getTime();
       map[src].count++;
@@ -97,7 +111,7 @@ export function DataSourcesPage({ events }: Props) {
       if (t >= cutoff24h) map[src].count24h++;
     }
     return map;
-  }, [events]);
+  }, [allEvents]);
 
   function healthStatus(stats: SourceStats | undefined, stalenessMs: number): 'healthy' | 'stale' | 'unknown' {
     if (!stats || stats.lastEventMs === null) return 'unknown';
@@ -152,7 +166,7 @@ export function DataSourcesPage({ events }: Props) {
                           ? 'bg-yellow-900/50 text-yellow-400'
                           : 'bg-[#1a1e2b] text-[#575c6e]'
                       }`}>
-                        {health === 'healthy' ? 'SAĞLIKLI' : health === 'stale' ? 'GECİKMELİ' : 'DEVRE DIŞI'}
+                        {health === 'healthy' ? 'SAĞLIKLI' : health === 'stale' ? 'GECİKMELİ' : 'VERİ YOK'}
                       </span>
                     </div>
                     <p className="text-[10px] text-[#575c6e] mt-1">{src.description}</p>
@@ -187,7 +201,7 @@ export function DataSourcesPage({ events }: Props) {
           <div className="rounded border border-[#232736] bg-[#12151d] px-4 py-3 space-y-1.5">
             <p className="text-[10px] text-[#575c6e] leading-relaxed">
               <span className="font-semibold text-[#8b90a2]">Not:</span>{' '}
-              İstatistikler, mevcut oturumdaki bellek içi olay listesinden hesaplanmaktadır.
+              İstatistikler, API'den son 48 saatlik pencere (1000 olay) alınarak hesaplanmaktadır.
               Ingestion servisinin Prometheus metrikleri için{' '}
               <span className="font-mono text-[#4a90e2]">:9091/metrics</span> adresini kullanın.
             </p>
