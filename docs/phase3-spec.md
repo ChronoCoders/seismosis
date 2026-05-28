@@ -697,7 +697,6 @@ The revised threshold of ≥100,000 reflects the real upper bound of what the pu
 - Real-time probabilistic seismic hazard analysis (PSHA) — Phase 4
 - Public API with rate limiting and API keys — Phase 4
 - Multi-broker Redpanda cluster — Phase 4
-- Kubernetes / Helm deployment — Phase 4
 - Mobile application — Phase 4
 - External notifications (SMS, email, PagerDuty) — Phase 4
 - Deep learning seismic phase picker (PhaseNet, EQTransformer) — evaluate Phase 4
