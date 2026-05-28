@@ -1,10 +1,6 @@
-<svg width="100%" viewBox="0 0 680 420" role="img" xmlns="http://www.w3.org/2000/svg"><defs><mask id="imagine-text-gaps-rq8rik" maskUnits="userSpaceOnUse"><rect x="0" y="0" width="680" height="420" fill="white"/><rect x="254" y="178" width="256.3125" height="65" fill="black" rx="2"/><rect x="350.65625" y="280" width="233.34375" height="17" fill="black" rx="2"/></mask></defs>
+<svg width="100%" viewBox="97 168 423 88" role="img" xmlns="http://www.w3.org/2000/svg"><defs><mask id="imagine-text-gaps-rq8rik" maskUnits="userSpaceOnUse"><rect x="0" y="0" width="680" height="420" fill="white"/><rect x="254" y="178" width="256.3125" height="65" fill="black" rx="2"/><rect x="350.65625" y="280" width="233.34375" height="17" fill="black" rx="2"/></mask></defs>
 <title>Seismosio logo tasarımı</title>
 <desc>Sismograf dalgası ile S harfini birleştiren kurumsal logo konsepti</desc>
-
-<rect x="40" y="40" width="600" height="340" rx="12" fill="#0a0e14"/>
-
-<rect x="100" y="155" width="480" height="110" rx="0" fill="#0a0e14"/>
 
 <line x1="100" y1="210" x2="220" y2="210" stroke="#1e2530" stroke-width="1"/>
 <line x1="340" y1="210" x2="580" y2="210" stroke="#1e2530" stroke-width="1" mask="url(#imagine-text-gaps-rq8rik)"/>
@@ -12,8 +8,4 @@
 <polyline points="100,210 140,210 158,210 168,185 178,235 188,172 198,248 208,205 218,210 240,210" fill="none" stroke="#e05c2c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 
 <text x="258" y="228" fill="#f0f6fc" font-size="52" font-weight="600" font-family="'SF Mono', 'Fira Code', monospace" letter-spacing="-1">seismosio</text>
-
-<line x1="100" y1="275" x2="580" y2="275" stroke="#1e2530" stroke-width="0.5"/>
-<text x="580" y="292" fill="#3d4a5c" font-size="11" font-family="monospace" text-anchor="end" letter-spacing="2">EARTHQUAKE ANALYSIS PLATFORM</text>
-
 </svg>

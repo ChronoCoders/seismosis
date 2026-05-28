@@ -104,11 +104,11 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "rpk cluster health --api-urls http://redpanda:9644 | grep -q 'Healthy:.*true'"
+        - "rpk cluster info --brokers redpanda:9092 > /dev/null 2>&1"
       interval: 10s
       timeout: 8s
       retries: 15
-      start_period: 30s
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -621,6 +621,7 @@ services:
       MIN_MAG: "1.5"
       ETAS_MIN_MAG: "4.0"
       HORIZON_DAYS: "30"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-}@redis:6379"
       PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
@@ -629,6 +630,8 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         - "CMD-SHELL"

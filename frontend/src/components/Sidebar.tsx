@@ -93,7 +93,7 @@ export function Sidebar({ activePage, onNavigate, expanded, onToggle, wsStatus, 
           <img
             src="/logo.svg"
             alt="seismosio"
-            className="h-7 w-auto object-contain flex-1 min-w-0"
+            className="h-12 w-auto object-contain flex-1 min-w-0"
             draggable={false}
           />
         ) : (
