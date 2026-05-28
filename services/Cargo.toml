@@ -55,8 +55,9 @@ rdkafka = { version = "0.36", features = ["cmake-build"] }
 apache-avro = "0.16"
 
 # ── HTTP client (Schema Registry, source APIs) ───────────────
-# rustls-tls avoids a native OpenSSL dep in containers.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# native-tls uses the system OpenSSL so the /etc/ssl/openssl.cnf security
+# level can be tuned per service (needed for AFAD which requires legacy TLS).
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
 
 # ── Redis ────────────────────────────────────────────────────
 # Both ingestion and api use ConnectionManager (connection-manager feature).

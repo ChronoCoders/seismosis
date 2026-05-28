@@ -52,12 +52,17 @@ RUN cargo build --release --locked -p seismosis-ingestion
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
-# Install CA certificates (needed for HTTPS to USGS/EMSC)
+# Install CA certificates and OpenSSL (needed for HTTPS sources).
+# AFAD uses a BigIP TLS stack that requires security level 1; the default
+# Debian bookworm level 2 rejects the handshake.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libssl3 \
     wget \
     && rm -rf /var/lib/apt/lists/* \
-    && update-ca-certificates
+    && update-ca-certificates \
+    && sed -i 's/^CipherString\s*=.*/CipherString = DEFAULT:@SECLEVEL=1/' /etc/ssl/openssl.cnf \
+    || true
 
 # Non-root user
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin seismosis

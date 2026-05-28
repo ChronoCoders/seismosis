@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         .timeout(config.http_timeout)
         .user_agent(concat!("seismosis-ingestion/", env!("CARGO_PKG_VERSION")))
         .gzip(true)
+        .redirect(reqwest::redirect::Policy::limited(5))
         .build()?;
 
     let sr_client =
